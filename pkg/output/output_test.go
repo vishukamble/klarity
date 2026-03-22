@@ -82,79 +82,115 @@ func crashFinding(env, cluster, ns, pod string) diagnosis.Finding {
 // ── RenderJSON tests ──────────────────────────────────────────────────────────
 
 func TestRenderJSON_EmptyFindings(t *testing.T) {
+	cfg := makeConfig(prodEnv("prod-us"))
 	var buf bytes.Buffer
-	err := RenderJSON(nil, &buf)
+	err := RenderJSON(nil, &buf, cfg, time.Now())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Should produce a valid JSON array.
-	var out []interface{}
+	var out map[string]interface{}
 	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
 		t.Fatalf("invalid JSON: %v — got: %q", err, buf.String())
 	}
-	if len(out) != 0 {
-		t.Errorf("expected empty array, got %d items", len(out))
+	if _, ok := out["scan_time"]; !ok {
+		t.Error("missing scan_time field")
+	}
+	summary := out["summary"].(map[string]interface{})
+	if summary["total_issues"].(float64) != 0 {
+		t.Errorf("total_issues = %v, want 0", summary["total_issues"])
 	}
 }
 
 func TestRenderJSON_Fields(t *testing.T) {
+	cfg := makeConfig(prodEnv("prod-us"))
 	f := oomFinding("prod", "prod-us", "payments", "pay-api-abc")
 	var buf bytes.Buffer
-	if err := RenderJSON([]diagnosis.Finding{f}, &buf); err != nil {
+	if err := RenderJSON([]diagnosis.Finding{f}, &buf, cfg, time.Now()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var out []map[string]interface{}
+	var out map[string]interface{}
 	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if len(out) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(out))
-	}
-	item := out[0]
 
-	checks := map[string]string{
-		"category":  "OOMKilled",
-		"severity":  "Critical",
-		"env":       "prod",
-		"cluster":   "prod-us",
-		"namespace": "payments",
-		"pod":       "pay-api-abc",
-		"container": "app",
+	envs := out["environments"].([]interface{})
+	if len(envs) != 1 {
+		t.Fatalf("want 1 environment, got %d", len(envs))
 	}
-	for k, want := range checks {
-		if got, ok := item[k]; !ok || got != want {
-			t.Errorf("JSON[%q] = %v, want %q", k, got, want)
-		}
+	env := envs[0].(map[string]interface{})
+	if env["name"] != "prod" {
+		t.Errorf("env name = %v, want prod", env["name"])
+	}
+
+	clusters := env["clusters"].([]interface{})
+	cl := clusters[0].(map[string]interface{})
+	if cl["total_issues"].(float64) != 1 {
+		t.Errorf("total_issues = %v, want 1", cl["total_issues"])
+	}
+
+	findings := cl["findings"].(map[string]interface{})
+	oomItems := findings["oom"].([]interface{})
+	if len(oomItems) != 1 {
+		t.Fatalf("want 1 oom item, got %d", len(oomItems))
+	}
+	item := oomItems[0].(map[string]interface{})
+	if item["summary"] == "" {
+		t.Error("summary should not be empty")
 	}
 }
 
 func TestRenderJSON_NoANSI(t *testing.T) {
+	cfg := makeConfig(prodEnv("prod-us"))
 	f := oomFinding("prod", "prod-us", "ns", "pod")
 	var buf bytes.Buffer
-	_ = RenderJSON([]diagnosis.Finding{f}, &buf)
+	_ = RenderJSON([]diagnosis.Finding{f}, &buf, cfg, time.Now())
 
-	// JSON output must contain zero ANSI escape sequences.
 	if strings.Contains(buf.String(), "\x1b[") {
 		t.Error("JSON output contains ANSI escape codes")
 	}
 }
 
 func TestRenderJSON_MultipleFindings(t *testing.T) {
+	cfg := makeConfig(prodEnv("prod-us"))
 	findings := []diagnosis.Finding{
 		oomFinding("prod", "prod-us", "ns1", "pod-a"),
 		crashFinding("prod", "prod-us", "ns2", "pod-b"),
 	}
 	var buf bytes.Buffer
-	if err := RenderJSON(findings, &buf); err != nil {
+	if err := RenderJSON(findings, &buf, cfg, time.Now()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	var out []interface{}
+
+	var out map[string]interface{}
 	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if len(out) != 2 {
-		t.Errorf("expected 2 items, got %d", len(out))
+
+	summary := out["summary"].(map[string]interface{})
+	if summary["total_issues"].(float64) != 2 {
+		t.Errorf("total_issues = %v, want 2", summary["total_issues"])
+	}
+}
+
+func TestRenderJSON_ByEnvironmentIncludesZero(t *testing.T) {
+	cfg := makeConfig(prodEnv("prod-us"), devEnv("dev-local"))
+	// Only prod has findings.
+	findings := []diagnosis.Finding{
+		oomFinding("prod", "prod-us", "ns1", "pod-a"),
+	}
+	var buf bytes.Buffer
+	if err := RenderJSON(findings, &buf, cfg, time.Now()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	summary := out["summary"].(map[string]interface{})
+	byEnv := summary["by_environment"].(map[string]interface{})
+	if byEnv["dev"].(float64) != 0 {
+		t.Errorf("dev should be 0 issues, got %v", byEnv["dev"])
 	}
 }
 
@@ -338,5 +374,55 @@ func TestSortedEnvs_StableOrder(t *testing.T) {
 	sorted := sortedEnvs(cfg)
 	if sorted[0].Name != "staging" || sorted[1].Name != "dev" {
 		t.Errorf("order = [%s %s], want [staging dev]", sorted[0].Name, sorted[1].Name)
+	}
+}
+
+// ── wrapText tests ───────────────────────────────────────────────────────────
+
+func TestWrapText(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		maxWidth int
+		want     string
+	}{
+		{
+			name:     "empty string",
+			input:    "",
+			maxWidth: 80,
+			want:     "",
+		},
+		{
+			name:     "short string no wrap",
+			input:    "hello world",
+			maxWidth: 80,
+			want:     "hello world",
+		},
+		{
+			name:     "exact boundary",
+			input:    "12345",
+			maxWidth: 5,
+			want:     "12345",
+		},
+		{
+			name:     "long string with word break",
+			input:    "0/3 nodes are available: 3 Insufficient cpu. Pod requested 4 cores but max allocatable is 2 cores per node.",
+			maxWidth: 50,
+			want:     "0/3 nodes are available: 3 Insufficient cpu. Pod\n requested 4 cores but max allocatable is 2 cores per node.",
+		},
+		{
+			name:     "no spaces hard break",
+			input:    "aaaaabbbbbcccccdddddeeeee",
+			maxWidth: 10,
+			want:     "aaaaabbbbb\ncccccdddddeeeee",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wrapText(tt.input, tt.maxWidth)
+			if got != tt.want {
+				t.Errorf("wrapText(%q, %d) =\n  %q\nwant:\n  %q", tt.input, tt.maxWidth, got, tt.want)
+			}
+		})
 	}
 }

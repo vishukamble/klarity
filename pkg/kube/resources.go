@@ -70,6 +70,19 @@ func ListQuotaIssues(ctx context.Context, cs kubernetes.Interface, namespace str
 	return issues, nil
 }
 
+// ListPVCNames returns the names of all PersistentVolumeClaims in namespace.
+func ListPVCNames(ctx context.Context, cs kubernetes.Interface, namespace string) ([]string, error) {
+	pvcs, err := cs.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("listing PVC names in %q: %w", namespace, err)
+	}
+	names := make([]string, len(pvcs.Items))
+	for i, pvc := range pvcs.Items {
+		names[i] = pvc.Name
+	}
+	return names, nil
+}
+
 // ListPendingPVCs returns PersistentVolumeClaims in namespace that are stuck
 // in Pending phase (storage has not been provisioned).
 func ListPendingPVCs(ctx context.Context, cs kubernetes.Interface, namespace string) ([]PVCIssue, error) {

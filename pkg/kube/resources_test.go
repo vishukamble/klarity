@@ -156,3 +156,35 @@ func TestListPendingPVCs_Mixed(t *testing.T) {
 		t.Errorf("expected only stuck-pvc, got %v", issues)
 	}
 }
+
+// ── ListPVCNames tests ───────────────────────────────────────────────────────
+
+func TestListPVCNames_Empty(t *testing.T) {
+	cs := fake.NewSimpleClientset()
+	names, err := ListPVCNames(context.Background(), cs, "default")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(names) != 0 {
+		t.Errorf("expected empty, got %v", names)
+	}
+}
+
+func TestListPVCNames_ReturnAll(t *testing.T) {
+	cs := fake.NewSimpleClientset(
+		makePVC("data-pvc", "payments", "ssd", "10Gi", corev1.ClaimBound),
+		makePVC("logs-pvc", "payments", "hdd", "50Gi", corev1.ClaimPending),
+		makePVC("other-pvc", "other-ns", "ssd", "5Gi", corev1.ClaimBound),
+	)
+	names, err := ListPVCNames(context.Background(), cs, "payments")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(names) != 2 {
+		t.Fatalf("want 2 PVC names, got %d: %v", len(names), names)
+	}
+	nameSet := map[string]bool{names[0]: true, names[1]: true}
+	if !nameSet["data-pvc"] || !nameSet["logs-pvc"] {
+		t.Errorf("expected data-pvc and logs-pvc, got %v", names)
+	}
+}

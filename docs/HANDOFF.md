@@ -4,13 +4,11 @@
 
 ## What To Do Next
 
-**All Phase 1–6 features are complete.** Potential future work:
+**All Phase 1–8 features + FEAT-27–32 are complete.** Potential future work:
 
-1. **FEAT-27: Node scanner** — flag NotReady/MemoryPressure/DiskPressure nodes
-2. **FEAT-28: Slack/webhook alerting** — post summary on findings above threshold
-3. **FEAT-29: `klarity config edit`** — open config in $EDITOR
-4. **Install script** — `https://getklarity.dev/install.sh` referenced in website hero
-5. **GitHub Actions release pipeline** — goreleaser, homebrew tap
+1. **GitHub Actions release pipeline** — goreleaser, homebrew tap
+2. **Ingress/NetworkPolicy scanner** — detect misconfigured ingress rules
+3. **Custom classifier plugins** — user-defined patterns in config
 
 ### How the Full Pipeline Fits Together (implemented)
 
@@ -23,7 +21,8 @@ klarity
     → for each namespace: ListUnhealthyPods/Deployments/HPAs/Services/Events/
                           Quotas/PVCs/DaemonSets/StatefulSets/Jobs/CronJobs
     → FetchLogs for CrashLoop pods → Summarize → PodIssue.LogSummary
-    → ScanResults{EnvName, ClusterCtx, all scanner outputs}
+    → ListPVCNames per namespace → AllPVCNames map
+    → ScanResults{EnvName, ClusterCtx, all scanner outputs, AllPVCNames}
     → RunAll(results, classifiers) → []Finding
   → pkg/output.RenderReport (table) or RenderJSON (--output json)
 ```
@@ -36,6 +35,172 @@ klarity
 - CLAUDE.md: classifiers return data, output layer is only formatter; never mutate K8s resources
 
 ## Previous Session Summary
+
+**2026-03-22 — Session 24: FEAT-27 through FEAT-32**
+
+Implemented 6 features in sequence:
+
+| Feature | Files | Summary |
+|---|---|---|
+| FEAT-27: Node scanner | `pkg/kube/nodes.go`, `pkg/kube/nodes_test.go`, `pkg/diagnosis/nodes.go`, `pkg/diagnosis/nodes_test.go`, `pkg/diagnosis/classifier.go`, `pkg/output/table.go`, `cmd/root.go` | `ListUnhealthyNodes()` checks all 5 node conditions (NotReady, MemoryPressure, DiskPressure, PIDPressure, NetworkUnavailable). `NodeClassifier` with `classifyNodeCondition()`. Renders FIRST in table (before OOM). 3 kube tests + 11 classifier tests. |
+| FEAT-28: config edit | `cmd/config.go` | `klarity config edit`: finds $EDITOR or nano/vim/vi, opens config interactively, validates after save. |
+| FEAT-29: --version | `cmd/root.go` | `rootCmd.Version = "1.0.3"`, `./klarity --version` prints `klarity version 1.0.3`. |
+| FEAT-30: config validate | `cmd/config.go` | `klarity config validate`: loads config, validates, checks each cluster context against kubeconfig with ✓/⚠️ output. |
+| FEAT-31: watch mode | `cmd/root.go` | Fixed clear sequence (`\033[H\033[2J`), added watch header with interval, clean Ctrl+C exit. |
+| FEAT-32: JSON restructure | `pkg/output/json.go`, `pkg/output/output_test.go` | Restructured from flat array to `{scan_time, environments[{name, tier, clusters[{context, findings{category: [...]}, total_issues}]}], summary{total_issues, by_environment}}`. All categories mapped. 5 JSON tests updated + 1 new. |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (517 test runs, all pass) | ✅ `./klarity --version` → 1.0.3
+
+**2026-03-22 — Session 23: klarity init fallback path fix — complete wizard flow with confirmation**
+
+Fixed the init fallback path (triggered when context names lack env keywords like docker-desktop):
+
+| File | What it does |
+|---|---|
+| `cmd/init.go` | Rewrote `runFallbackPath()`: env count prompt (1-10 validated), per-env name input + cluster multi-select with inline validation (warns + skips envs with 0 clusters), early exit if no envs have clusters, confirmation summary ("Ready to save: prod (3 clusters): ..."), save confirmation via huh.Confirm. Extracted `buildEnvironmentsFromInput(names, assignments)` as testable core — validates empty names, missing clusters, trims whitespace, sets tier via `InferTier`. |
+| `cmd/init_test.go` | New file: 8 tests for `buildEnvironmentsFromInput` — single env, multiple envs, empty name (error), no clusters (error), no names (error), namespace mode defaults to all, whitespace name trimmed, missing assignment (error) |
+| `pkg/config/detect.go` | Added exported `InferTier(name)` wrapper for `tierForLabel()` |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (500 test runs, all pass)
+
+**2026-03-22 — Session 22: Two event classifier regressions — BackOff dispatch + fallback truncation**
+
+Fixed two regressions in the Warning Events classifier:
+
+| File | What it does |
+|---|---|
+| `pkg/diagnosis/events.go` | Fix 1: `BackOff` reason now gets dedicated `classifyBackOff(message, image)` dispatch in the Classify switch — distinguishes CrashLoopBackOff ("restarting failed container" → extracts pod name, suggests `kubectl logs --previous`) from ImagePullBackOff ("pulling image" → delegates to `guessImagePullCause`). Removed `BackOff` from the generic `guessImagePullCause` path in default case. Fix 2: `classifyEventMessage` fallback no longer truncates with `...` — returns message as-is. |
+| `pkg/diagnosis/events_test.go` | 7 new `classifyBackOff` tests (restart with pod, restart without pod, pulling with image, pulling typo, pulling no image, generic, empty) + 2 new reason-dispatch tests (BackOff restart, BackOff pulling) + updated fallback test to expect no truncation |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (492 test runs, all pass)
+
+**2026-03-22 — Session 21: Namespace filtering — comma-separated --namespace, new --exclude-ns**
+
+Extended namespace filtering with two complementary flags:
+
+| File | What it does |
+|---|---|
+| `cmd/root.go` | `--namespace/-n` now accepts comma-separated list (e.g. `payments,analytics`), parsed by `parseCommaSeparated()`. New `--exclude-ns` flag excludes namespaces pre-scan via `applyNamespaceFilters()`. If both set, `--namespace` wins with stderr warning. `scanCluster()` applies include via `NamespaceFilter.Include` and exclude via `applyNamespaceFilters()` before any API calls. Removed old post-scan `filterByNamespace()`. |
+| `cmd/root_test.go` | New file: 6 `parseCommaSeparated` tests (empty, single, multiple, spaces, trailing comma, only commas) + 7 `applyNamespaceFilters` tests (no filter, include passthrough, exclude, include wins, exclude non-existent, exclude all, empty list) |
+| `cmd/init.go` | Added tip after config save: "Tip: use --namespace or --exclude-ns to filter scans at runtime" |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (482 test runs, all pass)
+
+**2026-03-22 — Session 20: PVC pending display fix, preemption stripping, namespace column min-width**
+
+Three fixes to Pending Pods display:
+
+| File | What it does |
+|---|---|
+| `pkg/diagnosis/pending.go` | Fix 1: PVC suggestion now replaces message entirely instead of appending — `pvcSuggestion` check runs first, if non-empty sets `detail["message"]` and skips scheduling message parsing. Fix 2: Preemption suffix stripped at top of `Classify()` via `stripPreemption(p.Message)` before `classifyPendingMessage()` or `parseSchedulingMessage()`. |
+| `pkg/output/table.go` | Fix 3: Namespace column gets fixed `Width(30)` via column-aware `StyleFunc(row, col)` — prevents wrapping regardless of adjacent column content. Added `nsColWidth = 30` constant. |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (467 test runs, all pass)
+
+**2026-03-22 — Session 19: 10 new error pattern classifiers**
+
+Added classifiers for 10 real-world K8s error patterns:
+
+| File | What it does |
+|---|---|
+| `pkg/diagnosis/container.go` | New file: `classifyMountError()` (ConfigMap/Secret not found, NFS timeout, CSI error), `classifyConfigError()` (missing key in ConfigMap/Secret, invalid env var), `classifyRunError()` (executable not found, missing binary, OCI runtime), `classifyImageNameError()` (unrendered Helm vars, invalid tag format), `classifyEviction()` (ephemeral storage, memory/disk pressure), `classifyFailedCreate()` (quota exceeded, admission webhook denied), `classifyProbeFailure()` (liveness/readiness/startup: 5xx, connection refused, status codes, timeout), `classifySandboxError()` (cgroup, CNI IP exhaustion, CNI plugin, failed sandbox). `ContainerErrorClassifier` catches pod-level CreateContainerConfigError/RunContainerError/InvalidImageName/Evicted. |
+| `pkg/diagnosis/container_test.go` | 67 tests: 8 mount, 5 config, 7 run, 5 image name, 5 eviction, 7 failed create, 10 probe, 6 sandbox, 5 integration, all with empty-input cases |
+| `pkg/diagnosis/events.go` | Reason-based dispatch in `Classify()`: FailedMount/Unhealthy/FailedCreate/FailedCreatePodSandBox/Evicted → specialized classifiers before generic path |
+| `pkg/diagnosis/events_test.go` | 5 new reason-dispatch tests |
+| `pkg/diagnosis/pending.go` | `topologySpreadRe` + classification: "N nodes: topology spread violated" |
+| `pkg/diagnosis/pending_test.go` | 1 new topology spread test |
+| `pkg/diagnosis/job.go` | `classifyJobFailure()`: BackoffLimitExceeded → "hit retry limit", DeadlineExceeded → "timed out", includes failed count |
+| `pkg/diagnosis/job_test.go` | 6 new `classifyJobFailure` tests |
+| `pkg/kube/pods.go` | Evicted pod detection (`Phase==Failed && Reason=="Evicted"`), `RunContainerError` added to `unhealthyWaitingReasons` |
+| `cmd/root.go` | `ContainerErrorClassifier{}` registered in classifier list |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (467 test runs, all pass)
+
+**2026-03-22 — Session 18: Compound scheduling message parser for Pending pods**
+
+Added `parseSchedulingMessage()` to split compound K8s scheduling messages into structured, classified reasons:
+
+| File | What it does |
+|---|---|
+| `pkg/diagnosis/pending.go` | `SchedulingReason` struct (Count, Kind, Summary). `parseSchedulingMessage()`: strips preemption suffix, splits by comma, classifies each reason (taint/affinity/resource/autoscaler/other). Taint classification: CriticalAddonsOnly, GPU role, CPU role, not-ready, unreachable, generic. Resource: cpu, memory, nvidia.com/gpu, nvidia.com/mig-*. Autoscaler: max node group, no scale-up. KeyVault CSI errors. `formatSchedulingReasons()`: single=plain text, multiple=bulleted list sorted by Count desc. `Classify()` uses parsed reasons for the `message` detail field. |
+| `pkg/diagnosis/pending_test.go` | 20 new tests: single taint, compound 5 reasons, GPU taint, CriticalAddonsOnly, affinity only, mixed resources+taints, KeyVault CSI, Docker Desktop, empty/garbage, strip preemption, GPU resource, MIG slice, autoscaler max, no scale-up, not-ready taint, format single/multiple/empty, nodeWord, integration compound message |
+| `pkg/output/table.go` | Removed `wrapText()` from Pending Reason column — shows structured multi-line output |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (386 test runs, all pass)
+
+**2026-03-21 — Session 17: Three fixes — PVC dedup, Why column no-truncate, client-go warning suppression**
+
+Three small fixes:
+
+| File | What it does |
+|---|---|
+| `pkg/diagnosis/pending.go` | Fix 1: Replaced `checkMissingPVCs()` (created separate `pvc_not_found` findings) with `pvcSuggestion()` that folds PVC hint into the main pending finding's `message` detail field. No more duplicate rows for the same pod. |
+| `pkg/diagnosis/pending_test.go` | Updated `MissingPVC_WithSuggestion` and `MissingPVC_NoSuggestion` tests: now expect 1 finding (not 2), check PVC info in `message` field |
+| `pkg/output/table.go` | Fix 2: Removed `wrapText()` from Warning Events Why column — renders OneLiner at full length, terminal handles natural wrapping |
+| `cmd/root.go` | Fix 3: Added `rest.SetDefaultWarningHandler(rest.NoWarnings{})` in `init()` to suppress client-go deprecation warnings (e.g. "v1 Endpoints is deprecated") |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (366 test runs, all pass)
+
+**2026-03-21 — Session 16: guessImagePullCause — tag heuristics for no-detail image pull events**
+
+Added `guessImagePullCause(image, hasDetailEvent)` for when events lack detailed error messages:
+
+| File | What it does |
+|---|---|
+| `pkg/diagnosis/events.go` | `guessImagePullCause()` with 4-branch tag heuristics: (1) nonsense tags (doesnotexist/fake/test123/etc.) → "Likely bad tag", (2) Levenshtein ≤ 2 from "latest" → "Likely typo: ... did you mean 'latest'?", (3) semver/well-known (latest/alpine/slim/stable/lts) → "Registry unreachable ... original error expired (>1h)", (4) fallback → "Pull failed ... original error expired". `extractTag()` handles registry:port/image:tag. Classifier Classify() calls `guessImagePullCause` when no signal found + image available. `classifyEventMessage` ImagePullBackOff/ErrImagePull branch now delegates to `guessImagePullCause`. |
+| `pkg/diagnosis/events_test.go` | 10 classifier tests (added nonsense-tag and typo-tag integration tests), 20 classifyEventMessage tests, 4 extractImageFromMessage tests, 18 guessImagePullCause tests (all 4 branches + edge cases), 6 extractTag tests |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (366 test runs, all pass)
+
+**2026-03-21 — Session 15: Warning Events fixes — signal-based dedup + image name in Why column**
+
+Two fixes to the Warning Events classifier:
+
+| File | What it does |
+|---|---|
+| `pkg/diagnosis/events.go` | Fix 1: Replaced reason-priority dedup with signal-based selection — `groupEventsByObject()` keeps all events, `bestEventForObject()` picks the one whose message has diagnostic signal (manifest unknown, 401, etc.); `collectImageFromGroup()` extracts image from any event in the group. Fix 2: `extractImageFromMessage()` parses `pull image "img:tag"` patterns; `classifyEventMessage()` now takes image param and includes it in image-pull-related outputs (e.g. "Tag not found: alpine:lates — verify tag exists"). |
+| `pkg/diagnosis/events_test.go` | 8 classifier tests + 20 `classifyEventMessage` tests + 4 `extractImageFromMessage` tests |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (339 test runs, all pass)
+
+**2026-03-21 — Session 14: Warning Events refactor — deduplication, message classification, table columns**
+
+Refactored Warning Events to reduce noise and show actionable information:
+
+| File | What it does |
+|---|---|
+| `pkg/output/table.go` | Warning Events columns changed from `Namespace | Object | Reason | Message` to `Namespace | Object | Category | Why`; rowFn simplified to use OneLiner directly |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (328 test runs, all pass)
+
+**2026-03-21 — Session 13: wrapText for long table columns + init fallback guard**
+
+Fixed horizontal overflow in table columns containing long free-text from K8s events/logs, and added guard for init wizard fallback path:
+
+| File | What it does |
+|---|---|
+| `pkg/output/table.go` | Added `wrapText(s, maxWidth)` helper: breaks at word boundary before maxWidth, hard-breaks if no spaces; `wrapWidth = 80` const; applied to Pending Reason, Warning Event Message, CrashLoop Root Cause columns |
+| `pkg/output/output_test.go` | 5 new `TestWrapText` subtests: empty string, short (no wrap), exact boundary, word break, no-spaces hard break |
+| `cmd/init.go` | Added guard before save: if `len(cfg.Environments) == 0` after wizard, returns clear error message |
+| `pkg/config/detect_test.go` | 3 new tests: `TestDetectEnvironments_DockerDesktop`, `TestBuildManualConfig_DockerDesktop`, `TestBuildManualConfig_NoClustersSelected` |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (309 test runs, all pass)
+
+**2026-03-21 — Session 12: PendingClassifier missing-PVC detection with Levenshtein typo suggestions**
+
+Enhanced PendingClassifier to detect pods stuck Pending due to missing PVC references, with typo correction suggestions:
+
+| File | What it does |
+|---|---|
+| `pkg/kube/pods.go` | Added `VolumeClaimNames []string` to `PodIssue`; `extractVolumeClaimNames()` pulls PVC claim names from pod spec volumes for Pending pods |
+| `pkg/kube/resources.go` | Added `ListPVCNames()` — returns all PVC names in a namespace (all phases) |
+| `pkg/kube/resources_test.go` | 2 new tests: `TestListPVCNames_Empty`, `TestListPVCNames_ReturnAll` |
+| `pkg/diagnosis/classifier.go` | Added `AllPVCNames map[string][]string` to `ScanResults` |
+| `pkg/diagnosis/pending.go` | `checkMissingPVCs()` emits findings for PVCs referenced by pod but not existing in namespace; `closestPVCName()` suggests typo corrections within Levenshtein distance ≤ 2; `levenshtein()` single-row DP implementation |
+| `pkg/diagnosis/pending_test.go` | 5 new tests: MissingPVC_WithSuggestion, MissingPVC_NoSuggestion, PVCExists_NoExtraFinding, TestLevenshtein (10 cases), TestClosestPVCName (6 cases) |
+| `cmd/root.go` | Wired `ListPVCNames()` call in scan loop; initialized `AllPVCNames` map in `ScanResults` |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (300 test runs, all pass)
 
 **2026-03-21 — Session 11: FEAT-SLACK — Slack integration for scan summaries**
 

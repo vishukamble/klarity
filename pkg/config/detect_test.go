@@ -257,6 +257,69 @@ func TestBuildManualConfig_EmptyClustersSkipped(t *testing.T) {
 }
 
 // ──────────────────────────────────────────────
+// Docker-desktop fallback scenario
+// ──────────────────────────────────────────────
+
+func TestDetectEnvironments_DockerDesktop(t *testing.T) {
+	// docker-desktop has no environment keyword — must trigger fallback.
+	contexts := []string{"docker-desktop"}
+	result, ok := DetectEnvironments(contexts)
+	if ok {
+		t.Fatal("expected ok=false for docker-desktop (no env keyword)")
+	}
+	if len(result.Envs) != 0 {
+		t.Errorf("expected no detected envs, got %v", result.Envs)
+	}
+	if len(result.Unmatched) != 1 || result.Unmatched[0] != "docker-desktop" {
+		t.Errorf("unmatched: want [docker-desktop], got %v", result.Unmatched)
+	}
+}
+
+func TestBuildManualConfig_DockerDesktop(t *testing.T) {
+	// Simulate fallback: user names env "local", assigns docker-desktop.
+	defaults := DefaultConfig()
+	names := []string{"local"}
+	clusters := map[string][]string{
+		"local": {"docker-desktop"},
+	}
+	cfg := BuildManualConfig(names, clusters, defaults)
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("generated config should be valid: %v", err)
+	}
+	if len(cfg.Environments) != 1 {
+		t.Fatalf("want 1 environment, got %d", len(cfg.Environments))
+	}
+	env := cfg.Environments[0]
+	if env.Name != "local" {
+		t.Errorf("env name: want local, got %s", env.Name)
+	}
+	if env.Tier != TierStandard {
+		t.Errorf("local tier: want standard, got %s", env.Tier)
+	}
+	if len(env.Clusters) != 1 || env.Clusters[0].Context != "docker-desktop" {
+		t.Errorf("want cluster docker-desktop, got %v", env.Clusters)
+	}
+}
+
+func TestBuildManualConfig_NoClustersSelected(t *testing.T) {
+	// If user selects zero clusters for all envs, config should have no environments.
+	defaults := DefaultConfig()
+	names := []string{"local"}
+	clusters := map[string][]string{
+		"local": {}, // no clusters selected
+	}
+	cfg := BuildManualConfig(names, clusters, defaults)
+
+	if len(cfg.Environments) != 0 {
+		t.Errorf("want 0 environments when no clusters selected, got %d", len(cfg.Environments))
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected validation error for config with no environments")
+	}
+}
+
+// ──────────────────────────────────────────────
 // helpers
 // ──────────────────────────────────────────────
 

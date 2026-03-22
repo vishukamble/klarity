@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/vishukamble/klarity/pkg/config"
 )
@@ -27,6 +29,18 @@ func init() {
 		Use:   "path",
 		Short: "Print the config file path",
 		RunE:  runConfigPath,
+	})
+
+	configCmd.AddCommand(&cobra.Command{
+		Use:   "edit",
+		Short: "Open config in your $EDITOR",
+		RunE:  runConfigEdit,
+	})
+
+	configCmd.AddCommand(&cobra.Command{
+		Use:   "validate",
+		Short: "Validate config and check cluster contexts",
+		RunE:  runConfigValidate,
 	})
 
 	rootCmd.AddCommand(configCmd)
@@ -90,6 +104,114 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 		}
 	}
 	fmt.Println()
+	return nil
+}
+
+func runConfigEdit(_ *cobra.Command, _ []string) error {
+	cfgPath, err := config.ConfigPath()
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(cfgPath); errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintln(os.Stderr, "No config found. Run 'klarity init' first.")
+		return nil
+	}
+
+	editor := findEditor()
+	if editor == "" {
+		fmt.Fprintf(os.Stderr, "Could not find an editor. Edit manually: %s\n", cfgPath)
+		return nil
+	}
+
+	cmd := exec.Command(editor, cfgPath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("editor exited with error: %w", err)
+	}
+
+	// Validate after editing.
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Config has errors: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Run 'klarity config edit' to fix, or 'klarity init' to start over.")
+		return nil
+	}
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "Config has errors: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Run 'klarity config edit' to fix, or 'klarity init' to start over.")
+		return nil
+	}
+
+	fmt.Println("Config updated successfully.")
+	return nil
+}
+
+// findEditor returns the editor command to use, checking $EDITOR then
+// common defaults.
+func findEditor() string {
+	if e := os.Getenv("EDITOR"); e != "" {
+		return e
+	}
+	for _, candidate := range []string{"nano", "vim", "vi"} {
+		if _, err := exec.LookPath(candidate); err == nil {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func runConfigValidate(_ *cobra.Command, _ []string) error {
+	cfgPath, err := config.ConfigPath()
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Validating %s...\n\n", cfgPath)
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintln(os.Stderr, "No config found. Run 'klarity init' to get started.")
+			return nil
+		}
+		return fmt.Errorf("config load error: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("config validation failed: %w", err)
+	}
+
+	// Load kubeconfig to check contexts.
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	kubeConfig, loadErr := loadingRules.Load()
+
+	var warnings int
+	var found int
+	for _, env := range cfg.Environments {
+		for _, cl := range env.Clusters {
+			if loadErr != nil {
+				fmt.Printf("⚠️  %s (could not load kubeconfig: %v)\n", cl.Context, loadErr)
+				warnings++
+				continue
+			}
+			if _, ok := kubeConfig.Contexts[cl.Context]; ok {
+				fmt.Printf("✓ %s (context found)\n", cl.Context)
+				found++
+			} else {
+				fmt.Printf("⚠️  %s (context not found in kubeconfig)\n", cl.Context)
+				warnings++
+			}
+		}
+	}
+
+	fmt.Println()
+	if warnings > 0 {
+		fmt.Printf("Config is valid with %d warning(s).\n", warnings)
+	} else {
+		fmt.Printf("Config is valid. %d context(s) found.\n", found)
+	}
 	return nil
 }
 

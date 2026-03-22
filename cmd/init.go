@@ -74,11 +74,16 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	if cfg == nil {
 		// User aborted.
-		fmt.Println("Setup cancelled.")
+		fmt.Println("Setup cancelled. Run klarity init to start over.")
 		return nil
 	}
 
-	// ── 3. Save ─────────────────────────────────────────────────────────
+	// ── 3. Guard: at least one environment must have clusters ──────────
+	if len(cfg.Environments) == 0 {
+		return fmt.Errorf("No environments configured. Run klarity init again and assign at least one cluster to an environment.")
+	}
+
+	// ── 4. Save ─────────────────────────────────────────────────────────
 	cfgPath, err := config.ConfigPath()
 	if err != nil {
 		return err
@@ -89,6 +94,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\n✅ Config saved to %s\n", cfgPath)
 	fmt.Println("Run `klarity` to scan your environment.")
+	fmt.Println("Tip: use --namespace or --exclude-ns to filter scans at runtime")
 	return nil
 }
 
@@ -155,35 +161,39 @@ func runHappyPath(detected config.DetectedEnvs, defaults *config.Config) (*confi
 
 // runFallbackPath handles the manual env-naming flow when auto-detection fails.
 func runFallbackPath(allContexts []string, defaults *config.Config) (*config.Config, error) {
-	fmt.Printf("Found %d clusters:\n", len(allContexts))
+	fmt.Printf("Found %d cluster", len(allContexts))
+	if len(allContexts) != 1 {
+		fmt.Print("s")
+	}
+	fmt.Println(":")
 	for _, ctx := range allContexts {
 		fmt.Printf("  • %s\n", ctx)
 	}
 	fmt.Println("\nCould not detect environments from cluster names.")
 
-	var numEnvs int
+	// ── Ask how many environments ────────────────────────────────────────
+	var numEnvStr string
 	numInput := huh.NewInput().
-		Title("How many environments do you want to configure?").
+		Title("How many environments do you want to configure? (1-10)").
 		Validate(func(s string) error {
-			n := 0
-			if _, err := fmt.Sscanf(s, "%d", &n); err != nil || n < 1 {
-				return fmt.Errorf("enter a number >= 1")
+			var n int
+			if _, err := fmt.Sscanf(s, "%d", &n); err != nil || n < 1 || n > 10 {
+				return fmt.Errorf("enter a number between 1 and 10")
 			}
 			return nil
 		}).
-		// We'll parse after the form runs.
-		Value(new(string))
-
-	numEnvStr := ""
-	numInput.Value(&numEnvStr)
+		Value(&numEnvStr)
 
 	if err := huh.NewForm(huh.NewGroup(numInput)).Run(); err != nil {
 		return nil, fmt.Errorf("prompt error: %w", err)
 	}
+
+	var numEnvs int
 	if _, err := fmt.Sscanf(numEnvStr, "%d", &numEnvs); err != nil || numEnvs < 1 {
 		return nil, fmt.Errorf("invalid number of environments: %q", numEnvStr)
 	}
 
+	// ── Collect env names + cluster assignments ──────────────────────────
 	envNames := make([]string, 0, numEnvs)
 	clustersByEnv := make(map[string][]string)
 
@@ -192,6 +202,7 @@ func runFallbackPath(allContexts []string, defaults *config.Config) (*config.Con
 		nameInput := huh.NewInput().
 			Title(fmt.Sprintf("Environment %d name:", i+1)).
 			Validate(func(s string) error {
+				s = strings.TrimSpace(s)
 				if s == "" {
 					return fmt.Errorf("name cannot be empty")
 				}
@@ -202,6 +213,7 @@ func runFallbackPath(allContexts []string, defaults *config.Config) (*config.Con
 		if err := huh.NewForm(huh.NewGroup(nameInput)).Run(); err != nil {
 			return nil, fmt.Errorf("prompt error: %w", err)
 		}
+		envName = strings.TrimSpace(envName)
 
 		opts := make([]huh.Option[string], len(allContexts))
 		for j, ctx := range allContexts {
@@ -209,7 +221,7 @@ func runFallbackPath(allContexts []string, defaults *config.Config) (*config.Con
 		}
 		var chosen []string
 		ms := huh.NewMultiSelect[string]().
-			Title(fmt.Sprintf("Select clusters for %s", envName)).
+			Title(fmt.Sprintf("Select clusters for %s:", envName)).
 			Options(opts...).
 			Value(&chosen)
 
@@ -217,14 +229,107 @@ func runFallbackPath(allContexts []string, defaults *config.Config) (*config.Con
 			return nil, fmt.Errorf("prompt error: %w", err)
 		}
 
+		if len(chosen) == 0 {
+			fmt.Printf("  ⚠ No clusters selected for %q — skipping this environment.\n", envName)
+			continue
+		}
+
 		envNames = append(envNames, envName)
 		clustersByEnv[envName] = chosen
+	}
+
+	if len(envNames) == 0 {
+		return nil, fmt.Errorf("no environments have clusters assigned — at least one environment must have a cluster")
+	}
+
+	// ── Build and validate ───────────────────────────────────────────────
+	envs, err := buildEnvironmentsFromInput(envNames, clustersByEnv)
+	if err != nil {
+		return nil, err
+	}
+
+	// ── Confirmation summary ─────────────────────────────────────────────
+	fmt.Println("\nReady to save:")
+	for _, env := range envs {
+		clusterWord := "cluster"
+		if len(env.Clusters) != 1 {
+			clusterWord = "clusters"
+		}
+		ctxNames := make([]string, len(env.Clusters))
+		for i, cl := range env.Clusters {
+			ctxNames[i] = cl.Context
+		}
+		fmt.Printf("  %s (%d %s): %s\n", env.Name, len(env.Clusters), clusterWord, strings.Join(ctxNames, ", "))
+	}
+	fmt.Println()
+
+	cfgPath, _ := config.ConfigPath()
+	var confirmSave bool
+	confirmPrompt := huh.NewConfirm().
+		Title(fmt.Sprintf("Save to %s?", cfgPath)).
+		Value(&confirmSave)
+
+	if err := huh.NewForm(huh.NewGroup(confirmPrompt)).Run(); err != nil {
+		return nil, fmt.Errorf("prompt error: %w", err)
+	}
+
+	if !confirmSave {
+		fmt.Println("Setup cancelled. Run klarity init to start over.")
+		return nil, nil
 	}
 
 	fmt.Printf("\nNamespaces: scanning all namespaces (excluding %v)\n", defaults.Settings.DefaultNsExclude)
 	fmt.Println("To customize, edit ~/.klarityconfig.yaml after setup.")
 
-	return config.BuildManualConfig(envNames, clustersByEnv, defaults), nil
+	cfg := &config.Config{
+		Version:      config.CurrentVersion,
+		Settings:     defaults.Settings,
+		Environments: envs,
+	}
+	return cfg, nil
+}
+
+// buildEnvironmentsFromInput constructs config.Environment slices from
+// user-supplied names and cluster assignments. This is the testable core
+// of the fallback path — no huh/TTY dependency.
+func buildEnvironmentsFromInput(names []string, assignments map[string][]string) ([]config.Environment, error) {
+	if len(names) == 0 {
+		return nil, fmt.Errorf("at least one environment name is required")
+	}
+
+	var envs []config.Environment
+	for _, rawName := range names {
+		// Look up with original key before trimming.
+		contexts := assignments[rawName]
+
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			return nil, fmt.Errorf("environment name cannot be empty")
+		}
+
+		// Also try trimmed key if original didn't match.
+		if len(contexts) == 0 && name != rawName {
+			contexts = assignments[name]
+		}
+		if len(contexts) == 0 {
+			return nil, fmt.Errorf("environment %q has no clusters assigned", name)
+		}
+
+		env := config.Environment{
+			Name: name,
+			Tier: config.InferTier(name),
+		}
+		for _, ctx := range contexts {
+			env.Clusters = append(env.Clusters, config.Cluster{
+				Context: ctx,
+				Namespaces: config.NamespaceFilter{
+					Mode: config.NamespaceModeAll,
+				},
+			})
+		}
+		envs = append(envs, env)
+	}
+	return envs, nil
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────

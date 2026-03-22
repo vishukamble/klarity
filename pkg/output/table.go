@@ -31,6 +31,18 @@ func detailOr(f diagnosis.Finding, key, fallback string) string {
 }
 
 var categorySpecs = map[diagnosis.Category]catSpec{
+	diagnosis.CategoryNodeIssue: {
+		icon:    "🖥️ ",
+		label:   "Node Issues",
+		headers: []string{"Node", "Condition", "Why"},
+		rowFn: func(f diagnosis.Finding) []string {
+			return []string{
+				detailOr(f, "node_name", "-"),
+				detailOr(f, "condition", "-"),
+				f.OneLiner,
+			}
+		},
+	},
 	diagnosis.CategoryOOMKilled: {
 		icon:    "💀",
 		label:   "OOMKilled",
@@ -69,7 +81,7 @@ var categorySpecs = map[diagnosis.Category]catSpec{
 				f.Namespace,
 				f.PodName,
 				detailOr(f, "restart_count", "-"),
-				f.OneLiner,
+				wrapText(f.OneLiner, wrapWidth),
 			}
 		},
 	},
@@ -161,16 +173,11 @@ var categorySpecs = map[diagnosis.Category]catSpec{
 	diagnosis.CategoryWarningEvent: {
 		icon:    "⚠️ ",
 		label:   "Warning Events",
-		headers: []string{"Namespace", "Object", "Reason", "Message"},
+		headers: []string{"Namespace", "Object", "Category", "Why"},
 		rowFn: func(f diagnosis.Finding) []string {
 			objName := detailOr(f, "object_name", "-")
 			reason := detailOr(f, "reason", "-")
-			// OneLiner contains "reason: message", extract just the message part.
-			msg := f.OneLiner
-			if idx := len(reason) + 2; len(msg) > idx && msg[:len(reason)+2] == reason+": " {
-				msg = msg[idx:]
-			}
-			return []string{f.Namespace, objName, reason, msg}
+			return []string{f.Namespace, objName, reason, f.OneLiner}
 		},
 	},
 }
@@ -222,6 +229,7 @@ func envTierRank(e config.Environment) int {
 
 // categoryOrder defines the display order within a cluster section.
 var categoryOrder = []diagnosis.Category{
+	diagnosis.CategoryNodeIssue,
 	diagnosis.CategoryOOMKilled,
 	diagnosis.CategoryImagePull,
 	diagnosis.CategoryCrashLoop,
@@ -347,11 +355,16 @@ func renderCategorySection(w io.Writer, cat diagnosis.Category, findings []diagn
 	t := table.New().
 		Border(lipgloss.NormalBorder()).
 		BorderStyle(TableBorderStyle).
-		StyleFunc(func(row, _ int) lipgloss.Style {
+		StyleFunc(func(row, col int) lipgloss.Style {
+			base := TableCellStyle
 			if row == table.HeaderRow {
-				return TableHeaderStyle
+				base = TableHeaderStyle
 			}
-			return TableCellStyle
+			// Namespace column (col 0): fixed min-width to prevent wrapping.
+			if col == 0 {
+				return base.Width(nsColWidth)
+			}
+			return base
 		}).
 		Headers(spec.headers...).
 		Wrap(false)
@@ -402,3 +415,27 @@ func countClusters(cfg *config.Config) int {
 	}
 	return n
 }
+
+// wrapText inserts a single newline at the nearest word boundary before
+// maxWidth. If the string fits within maxWidth or is empty, it is returned
+// unchanged. When no space exists before maxWidth the string is hard-broken.
+func wrapText(s string, maxWidth int) string {
+	if len(s) <= maxWidth {
+		return s
+	}
+
+	// Find the last space at or before maxWidth.
+	breakAt := strings.LastIndex(s[:maxWidth], " ")
+	if breakAt <= 0 {
+		// No word boundary — hard-break at maxWidth.
+		breakAt = maxWidth
+	}
+
+	return s[:breakAt] + "\n" + s[breakAt:]
+}
+
+const wrapWidth = 80
+
+// nsColWidth is the fixed minimum width for the Namespace column,
+// preventing it from wrapping when adjacent columns have long content.
+const nsColWidth = 30

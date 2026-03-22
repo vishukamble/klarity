@@ -13,26 +13,28 @@ import (
 // PodIssue describes a single unhealthy signal from a pod or container.
 // One pod can produce multiple PodIssues (e.g., CrashLoopBackOff + OOMKilled).
 type PodIssue struct {
-	Namespace     string
-	PodName       string
-	ContainerName string    // empty for pod-level issues (Pending)
-	Reason        string    // CrashLoopBackOff | ImagePullBackOff | OOMKilled | Pending | …
-	Phase         string    // Running | Pending | Failed | Unknown
-	Image         string
-	RestartCount  int32
-	Message       string    // from container waiting/terminated message
-	PendingSince  time.Time // populated when Reason == "Pending"
-	LogSummary    string    // one-line log extract; set by scan loop after FEAT-18/19; empty until then
+	Namespace        string
+	PodName          string
+	ContainerName    string    // empty for pod-level issues (Pending)
+	Reason           string    // CrashLoopBackOff | ImagePullBackOff | OOMKilled | Pending | …
+	Phase            string    // Running | Pending | Failed | Unknown
+	Image            string
+	RestartCount     int32
+	Message          string    // from container waiting/terminated message
+	PendingSince     time.Time // populated when Reason == "Pending"
+	LogSummary       string    // one-line log extract; set by scan loop after FEAT-18/19; empty until then
+	VolumeClaimNames []string  // PVC names referenced by pod spec volumes; populated for Pending pods
 }
 
 // unhealthyWaitingReasons are container waiting reasons that indicate a problem.
 var unhealthyWaitingReasons = map[string]bool{
-	"CrashLoopBackOff":         true,
-	"ImagePullBackOff":         true,
-	"ErrImagePull":             true,
+	"CrashLoopBackOff":           true,
+	"ImagePullBackOff":           true,
+	"ErrImagePull":               true,
 	"CreateContainerConfigError": true,
-	"InvalidImageName":         true,
-	"CreateContainerError":     true,
+	"InvalidImageName":           true,
+	"CreateContainerError":       true,
+	"RunContainerError":          true,
 }
 
 // ListUnhealthyPods returns all pods in namespace that have an unhealthy
@@ -50,15 +52,28 @@ func ListUnhealthyPods(ctx context.Context, cs kubernetes.Interface, namespace s
 			continue
 		}
 
+		// Evicted — pod was evicted by kubelet due to node pressure.
+		if pod.Status.Phase == corev1.PodFailed && pod.Status.Reason == "Evicted" {
+			issues = append(issues, PodIssue{
+				Namespace: pod.Namespace,
+				PodName:   pod.Name,
+				Reason:    "Evicted",
+				Phase:     string(pod.Status.Phase),
+				Message:   pod.Status.Message,
+			})
+			continue
+		}
+
 		// Pending — pod hasn't been scheduled yet or containers haven't started.
 		if pod.Status.Phase == corev1.PodPending {
 			issues = append(issues, PodIssue{
-				Namespace:    pod.Namespace,
-				PodName:      pod.Name,
-				Reason:       "Pending",
-				Phase:        string(pod.Status.Phase),
-				Message:      pendingMessage(pod),
-				PendingSince: pod.CreationTimestamp.Time,
+				Namespace:        pod.Namespace,
+				PodName:          pod.Name,
+				Reason:           "Pending",
+				Phase:            string(pod.Status.Phase),
+				Message:          pendingMessage(pod),
+				PendingSince:     pod.CreationTimestamp.Time,
+				VolumeClaimNames: extractVolumeClaimNames(pod),
 			})
 			// Don't also inspect empty container statuses for pending pods.
 			continue
@@ -68,6 +83,17 @@ func ListUnhealthyPods(ctx context.Context, cs kubernetes.Interface, namespace s
 		issues = append(issues, inspectContainerStatuses(pod, pod.Status.ContainerStatuses)...)
 	}
 	return issues, nil
+}
+
+// extractVolumeClaimNames returns the PVC claim names referenced by the pod's volumes.
+func extractVolumeClaimNames(pod corev1.Pod) []string {
+	var names []string
+	for _, vol := range pod.Spec.Volumes {
+		if vol.PersistentVolumeClaim != nil && vol.PersistentVolumeClaim.ClaimName != "" {
+			names = append(names, vol.PersistentVolumeClaim.ClaimName)
+		}
+	}
+	return names
 }
 
 // pendingMessage extracts a scheduling reason from pod conditions.

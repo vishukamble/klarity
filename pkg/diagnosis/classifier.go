@@ -14,6 +14,7 @@ import (
 type Category string
 
 const (
+	CategoryNodeIssue          Category = "NodeIssue"
 	CategoryOOMKilled          Category = "OOMKilled"
 	CategoryImagePull          Category = "ImagePull"
 	CategoryCrashLoop          Category = "CrashLoop"
@@ -68,6 +69,7 @@ type ScanResults struct {
 	ClusterCtx string
 
 	// Scanner outputs — all flat; Namespace field on each item identifies scope.
+	Nodes        []kube.NodeIssue
 	Pods         []kube.PodIssue
 	Deployments  []kube.DeploymentIssue
 	HPAs         []kube.HPAIssue
@@ -79,6 +81,10 @@ type ScanResults struct {
 	StatefulSets []kube.StatefulSetIssue
 	Jobs         []kube.JobIssue
 	CronJobs     []kube.CronJobIssue
+
+	// AllPVCNames maps namespace → list of all PVC names in that namespace.
+	// Used by PendingClassifier to detect missing PVC references.
+	AllPVCNames map[string][]string
 }
 
 // ── Classifier interface ──────────────────────────────────────────────────────

@@ -172,3 +172,9 @@ func tierForLabel(label string) string {
 	}
 	return TierStandard
 }
+
+// InferTier returns the tier for an environment name.
+// Exported for use by the init fallback path.
+func InferTier(name string) string {
+	return tierForLabel(name)
+}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/vishukamble/klarity/pkg/config"
 	"github.com/vishukamble/klarity/pkg/diagnosis"
@@ -29,6 +30,7 @@ var (
 	flagEnv       string
 	flagContext   string
 	flagNamespace string
+	flagExcludeNs string
 	flagCategory  string
 	flagWatch     bool
 	flagInterval  int
@@ -36,9 +38,13 @@ var (
 
 // ── Root command ──────────────────────────────────────────────────────────────
 
+// Version is the CLI version string, set here for --version flag.
+const Version = "1.0.3"
+
 var rootCmd = &cobra.Command{
-	Use:   "klarity",
-	Short: "Read-only Kubernetes diagnostic CLI",
+	Use:     "klarity",
+	Short:   "Read-only Kubernetes diagnostic CLI",
+	Version: Version,
 	Long: `klarity scans multiple clusters and namespaces in parallel,
 classifies unhealthy workloads by root cause, and renders categorized
 terminal tables with one-line error summaries. Never mutates resources.`,
@@ -48,6 +54,9 @@ terminal tables with one-line error summaries. Never mutates resources.`,
 }
 
 func init() {
+	// Suppress client-go deprecation warnings (e.g. "v1 Endpoints is deprecated").
+	rest.SetDefaultWarningHandler(rest.NoWarnings{})
+
 	rootCmd.Flags().StringVarP(&flagOutput, "output", "o", "table",
 		"Output format: table (default) | json")
 	rootCmd.Flags().StringVar(&flagEnv, "env", "",
@@ -55,7 +64,9 @@ func init() {
 	rootCmd.Flags().StringVar(&flagContext, "context", "",
 		"Limit scan to this cluster context name")
 	rootCmd.Flags().StringVarP(&flagNamespace, "namespace", "n", "",
-		"Limit scan to this namespace (across all clusters)")
+		"Scan only these namespace(s), comma-separated (e.g. payments or payments,analytics)")
+	rootCmd.Flags().StringVar(&flagExcludeNs, "exclude-ns", "",
+		"Exclude namespace(s) from scan, comma-separated (e.g. build-ns-1,build-ns-2). Ignored if --namespace is also set.")
 	rootCmd.Flags().StringVar(&flagCategory, "category", "",
 		"Comma-separated list of categories to show (e.g. oom,crashloop,imagepull)")
 	rootCmd.Flags().BoolVar(&flagWatch, "watch", false,
@@ -110,6 +121,14 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Parse namespace filters.
+	nsInclude := parseCommaSeparated(flagNamespace)
+	nsExclude := parseCommaSeparated(flagExcludeNs)
+	if len(nsInclude) > 0 && len(nsExclude) > 0 {
+		fmt.Fprintln(os.Stderr, "⚠️  --exclude-ns ignored when --namespace is specified")
+		nsExclude = nil
+	}
+
 	// Determine effective interval.
 	interval := cfg.Settings.ScanIntervalSeconds
 	if flagInterval > 0 {
@@ -121,6 +140,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	// Build the canonical classifier list once.
 	classifiers := []diagnosis.Classifier{
+		diagnosis.NodeClassifier{},
 		diagnosis.OOMClassifier{},
 		diagnosis.ImagePullClassifier{},
 		diagnosis.CrashLoopClassifier{},
@@ -133,12 +153,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 		diagnosis.StatefulSetClassifier{},
 		diagnosis.JobClassifier{},
 		diagnosis.CronJobClassifier{},
+		diagnosis.ContainerErrorClassifier{},
 		diagnosis.EventClassifier{},
 	}
 
 	if !flagWatch {
 		// Single-shot scan.
-		return doScan(context.Background(), cfg, classifiers, categorySet, interval)
+		return doScan(context.Background(), cfg, classifiers, categorySet, nsInclude, nsExclude, interval)
 	}
 
 	// ── Watch mode ────────────────────────────────────────────────────────────
@@ -147,7 +168,8 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	for {
 		clearScreen()
-		if err := doScan(ctx, cfg, classifiers, categorySet, interval); err != nil {
+		fmt.Printf("klarity --watch | scanning every %ds | press Ctrl+C to stop\n\n", interval)
+		if err := doScan(ctx, cfg, classifiers, categorySet, nsInclude, nsExclude, interval); err != nil {
 			if errors.Is(err, context.Canceled) {
 				fmt.Fprintln(os.Stdout, "\nWatch mode stopped.")
 				return nil
@@ -171,6 +193,8 @@ func doScan(
 	cfg *config.Config,
 	classifiers []diagnosis.Classifier,
 	categorySet map[diagnosis.Category]bool,
+	nsInclude []string,
+	nsExclude []string,
 	interval int,
 ) error {
 	startTime := time.Now()
@@ -208,7 +232,7 @@ func doScan(
 					mu.Unlock()
 					return
 				}
-				findings, errs := scanCluster(ctx, cfg, env, cluster, cs, classifiers)
+				findings, errs := scanCluster(ctx, cfg, env, cluster, cs, classifiers, nsInclude, nsExclude)
 				mu.Lock()
 				allFindings = append(allFindings, findings...)
 				scanErrors = append(scanErrors, errs...)
@@ -222,11 +246,6 @@ func doScan(
 		return ctx.Err()
 	}
 
-	// Apply --namespace filter post-scan (cheaper than modifying cluster configs).
-	if flagNamespace != "" {
-		allFindings = filterByNamespace(allFindings, flagNamespace)
-	}
-
 	// Apply --category filter post-classify.
 	if len(categorySet) > 0 {
 		allFindings = filterByCategory(allFindings, categorySet)
@@ -234,7 +253,7 @@ func doScan(
 
 	switch flagOutput {
 	case "json":
-		if err := output.RenderJSON(allFindings, os.Stdout); err != nil {
+		if err := output.RenderJSON(allFindings, os.Stdout, cfg, startTime); err != nil {
 			return err
 		}
 	default:
@@ -267,16 +286,18 @@ func scanCluster(
 	cluster config.Cluster,
 	cs kubernetes.Interface,
 	classifiers []diagnosis.Classifier,
+	nsInclude []string,
+	nsExclude []string,
 ) ([]diagnosis.Finding, []string) {
 	var errs []string
 	prefix := fmt.Sprintf("[%s/%s]", env.Name, cluster.Context)
 
 	// Honour --namespace flag: override cluster's namespace filter.
 	nsFilter := cluster.Namespaces
-	if flagNamespace != "" {
+	if len(nsInclude) > 0 {
 		nsFilter = config.NamespaceFilter{
 			Mode:    config.NamespaceModeInclude,
-			Include: []string{flagNamespace},
+			Include: nsInclude,
 		}
 	}
 
@@ -285,9 +306,21 @@ func scanCluster(
 		return nil, []string{fmt.Sprintf("%s resolve namespaces: %v", prefix, err)}
 	}
 
+	// Apply --exclude-ns filter before any API calls.
+	namespaces = applyNamespaceFilters(namespaces, nsInclude, nsExclude)
+
 	results := diagnosis.ScanResults{
-		EnvName:    env.Name,
-		ClusterCtx: cluster.Context,
+		EnvName:     env.Name,
+		ClusterCtx:  cluster.Context,
+		AllPVCNames: make(map[string][]string),
+	}
+
+	// Node scan is cluster-wide (not namespaced).
+	nodeIssues, err := kube.ListUnhealthyNodes(ctx, cs)
+	if err != nil {
+		errs = append(errs, fmt.Sprintf("%s nodes: %v", prefix, err))
+	} else {
+		results.Nodes = nodeIssues
 	}
 
 	for _, ns := range namespaces {
@@ -347,6 +380,13 @@ func scanCluster(
 			errs = append(errs, fmt.Sprintf("%s pvcs/%s: %v", prefix, ns, err))
 		} else {
 			results.PVCs = append(results.PVCs, pvcs...)
+		}
+
+		pvcNames, err := kube.ListPVCNames(ctx, cs, ns)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s pvc-names/%s: %v", prefix, ns, err))
+		} else {
+			results.AllPVCNames[ns] = pvcNames
 		}
 
 		daemonsets, err := kube.ListUnhealthyDaemonSets(ctx, cs, ns)
@@ -415,12 +455,41 @@ func filterByContext(cfg *config.Config, ctx string) *config.Config {
 	return &out
 }
 
-// filterByNamespace retains only findings from the given namespace.
-func filterByNamespace(findings []diagnosis.Finding, ns string) []diagnosis.Finding {
-	var out []diagnosis.Finding
-	for _, f := range findings {
-		if f.Namespace == ns {
-			out = append(out, f)
+// parseCommaSeparated splits a comma-separated string into trimmed tokens.
+// Returns nil for empty input.
+func parseCommaSeparated(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, token := range strings.Split(s, ",") {
+		token = strings.TrimSpace(token)
+		if token != "" {
+			out = append(out, token)
+		}
+	}
+	return out
+}
+
+// applyNamespaceFilters applies include/exclude filters to a resolved namespace list.
+// If nsInclude is non-empty, returns the intersection (include already handled by
+// ResolveNamespaces, so this is a no-op). If nsExclude is non-empty, removes those.
+func applyNamespaceFilters(namespaces []string, nsInclude, nsExclude []string) []string {
+	// Include filter already applied via NamespaceFilter — nothing to do here.
+	if len(nsInclude) > 0 {
+		return namespaces
+	}
+	if len(nsExclude) == 0 {
+		return namespaces
+	}
+	excludeSet := make(map[string]bool, len(nsExclude))
+	for _, ns := range nsExclude {
+		excludeSet[ns] = true
+	}
+	var out []string
+	for _, ns := range namespaces {
+		if !excludeSet[ns] {
+			out = append(out, ns)
 		}
 	}
 	return out
@@ -439,6 +508,8 @@ func filterByCategory(findings []diagnosis.Finding, set map[diagnosis.Category]b
 
 // categoryAliases maps short CLI names → diagnosis.Category.
 var categoryAliases = map[string]diagnosis.Category{
+	"node":         diagnosis.CategoryNodeIssue,
+	"nodes":        diagnosis.CategoryNodeIssue,
 	"oom":          diagnosis.CategoryOOMKilled,
 	"oomkilled":    diagnosis.CategoryOOMKilled,
 	"imagepull":    diagnosis.CategoryImagePull,
@@ -494,5 +565,5 @@ func countConfigClusters(cfg *config.Config) int {
 // clearScreen writes ANSI escape codes to move to the top-left and erase the
 // display. Works on Linux/macOS terminals; no-ops on Windows cmd.exe.
 func clearScreen() {
-	fmt.Print("\033[2J\033[H")
+	fmt.Print("\033[H\033[2J")
 }

@@ -4,16 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>klarity | Kubernetes Multi-Cluster Health Inspector</title>
-    <meta name="description"
-          content="One command. Every cluster. Everything that's wrong. Multi-cluster diagnostic CLI for SREs.">
+    <meta name="description" content="One command. Every cluster. Everything that's wrong. Multi-cluster diagnostic CLI for SREs.">
     <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96"/>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
     <link rel="shortcut icon" href="/favicon.ico"/>
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/>
     <link rel="manifest" href="/site.webmanifest"/>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap"
-          rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -23,23 +21,21 @@
 <nav>
     <div class="nav-container">
         <div class="logo">
-            <img src="logo-transparent.png" alt="klarity logo" class="nav-logo-img">
+            <img src="logo.png" alt="klarity logo" class="nav-logo-img">
             klarity
         </div>
         <div class="links">
             <a href="https://github.com/vishukamble/klarity" target="_blank">GitHub</a>
             <a href="#features">Features</a>
-            <a href="#docs">Docs</a>
+            <a href="https://github.com/vishukamble/klarity/tree/main/docs" target="_blank">Docs</a>
         </div>
     </div>
 </nav>
 
 <header class="hero">
     <div class="badge">v1.0.4 Live</div>
-    <h1 class="mitra-headline">One command.<br>Every cluster.<br><span class="highlight">Everything that's wrong.</span>
-    </h1>
-    <p class="subtitle">A read-only Kubernetes diagnostic CLI that scans clusters in parallel, extracts root causes from
-        logs, and surfaces the answer in one screen.</p>
+    <h1 class="mitra-headline">One command.<br>Every cluster.<br><span class="highlight">Diagnosed.</span></h1>
+    <p class="subtitle">A read-only Kubernetes diagnostic CLI that scans clusters in parallel, extracts root causes from logs, and surfaces the answer in one screen.</p>
 
     <div class="install-box" onclick="copyInstallCmd()">
         <code><span class="prompt">$</span> curl -sSL https://getklarity.dev/install.sh | sh</code>
@@ -56,17 +52,17 @@
                     <span class="dot-yellow"></span>
                     <span class="dot-green"></span>
                 </div>
-                <div class="terminal-title">klarity scan --env prod</div>
+                <div class="terminal-title">klarity</div>
             </div>
 
             <div class="terminal-body">
                 <div class="term-box amber-border">
-                    <div class="term-white">klarity scan — 2026-03-21 14:32:07 CST</div>
-                    <div class="term-dim">Environments: 3 | Clusters: 7 scanned | Issues: 5 found</div>
+                    <div class="term-white">klarity — 2026-03-21 14:32:07 CST</div>
+                    <div class="term-dim">Environments: 3 | Clusters: 7 scanned | Issues: 4 found</div>
                 </div>
 
                 <div class="env-row">
-                    <span class="dot-red"></span>
+                    <span class="status-indicator red"></span>
                     <span class="term-red">PROD</span>
                     <div class="env-line"></div>
                 </div>
@@ -77,38 +73,34 @@
                 </div>
 
                 <div class="issue-section">
-                    <div class="issue-label">💀 <span class="term-white">OOMKilled (2 pods)</span></div>
+                    <div class="issue-label">💀 <span class="term-white">OOMKilled (1 pod)</span></div>
                     <div class="term-table blue-border">
                         <div class="t-row t-head">
                             <span>Namespace</span><span>Pod</span><span>Requests</span><span>Limits</span><span>Restarts</span>
                         </div>
                         <div class="t-row">
-                            <span class="term-blue">ml-serving</span><span>model-inf-8x2-a</span><span>512Mi</span><span>1Gi</span><span
-                                class="term-red">14</span>
+                            <span class="term-blue">ml-serving</span><span>model-inf-8x2-a</span><span>512Mi</span><span>1Gi</span><span class="term-red">14</span>
                         </div>
                     </div>
                 </div>
 
                 <div class="issue-section">
-                    <div class="issue-label">🔥 <span
-                            class="term-white">CrashLoopBackOff — Application Errors (2 pods)</span></div>
+                    <div class="issue-label">🔥 <span class="term-white">CrashLoopBackOff — Application Errors (2 pods)</span></div>
                     <div class="term-table blue-border">
-                        <div class="t-row t-head">
-                            <span>Namespace</span><span>Pod</span><span>Restarts</span><span class="wide-col">Root Cause (from logs)</span>
+                        <div class="t-row t-head" style="grid-template-columns: 150px 180px 100px 1fr;">
+                            <span>Namespace</span><span>Pod</span><span>Restarts</span><span>Root Cause (from logs)</span>
                         </div>
-                        <div class="t-row">
-                            <span class="term-blue">checkout</span><span>cart-svc-3d1-r</span><span>47</span><span
-                                class="term-red">FATAL: password auth failed "cartdb"</span>
+                        <div class="t-row" style="grid-template-columns: 150px 180px 100px 1fr;">
+                            <span class="term-blue">checkout</span><span>cart-svc-3d1-r</span><span>47</span><span class="term-red">FATAL: password auth failed "cartdb"</span>
                         </div>
-                        <div class="t-row">
-                            <span class="term-blue">notifications</span><span>email-wrk-1a-m</span><span>12</span><span
-                                class="term-red">ConnectionRefused: rabbitmq:5672</span>
+                        <div class="t-row" style="grid-template-columns: 150px 180px 100px 1fr;">
+                            <span class="term-blue">notifications</span><span>email-wrk-1a-m</span><span>12</span><span class="term-red">ConnectionRefused: rabbitmq:5672</span>
                         </div>
                     </div>
                 </div>
 
-                <div class="term-box dim-border">
-                    <div class="term-dim">Summary: 4 issues in prod | 1 in staging | 0 in dev</div>
+                <div class="term-box dim-border" style="margin-bottom: 0;">
+                    <div class="term-dim">Summary: 3 issues in prod | 1 in staging | 0 in dev</div>
                 </div>
             </div>
         </div>
@@ -119,14 +111,12 @@
             <div class="bento-item tall">
                 <div class="card-icon">🧠</div>
                 <h3>Root-Cause Extraction</h3>
-                <p>No more digging through 30-line stack traces. klarity parses Java, Python, and Go logs to extract the
-                    exact error instantly.</p>
+                <p>No more digging through 30-line stack traces. klarity parses Java, Python, and Go logs to extract the exact error instantly.</p>
             </div>
             <div class="bento-item wide">
                 <div class="card-icon">⚡</div>
                 <h3>Multi-Cluster Native</h3>
-                <p>Go-routines scan your entire kubeconfig in parallel. Environments (prod, staging) are auto-detected
-                    by context naming.</p>
+                <p>Go-routines scan your entire kubeconfig in parallel. Environments (prod, staging) are auto-detected by context naming.</p>
             </div>
             <div class="bento-item">
                 <div class="card-icon">🛡️</div>
@@ -143,31 +133,20 @@
 </main>
 
 <footer>
-    <div class="footer-container">
-        <p>Built for technical teams by <a href="https://vishu.info"
-                                           style="color:var(--accent); text-decoration:none;">vishukamble</a>
-        </p>
-        <div class="footer-links">
-            <a href="https://github.com/vishukamble/klarity">GitHub</a>
-            <a href="#">Documentation</a>
-            <a href="#">License</a>
-        </div>
+    <div class="footer-links">
+        <a href="https://github.com/vishukamble/klarity">GitHub</a>
+        <a href="https://github.com/vishukamble/klarity/tree/main/docs">Documentation</a>
+        <a href="https://github.com/vishukamble/klarity/blob/main/LICENSE">License</a>
+    </div>
+    <div class="footer-copy">
+        Built for technical teams by <a href="https://vishu.info" style="color:var(--accent); text-decoration:none;">vishukamble</a>
     </div>
 </footer>
 
-<div id="toast">Copied to clipboard</div>
+<div id="toast">Copied to clipboard!</div>
 
 <script>
-    function copyInstallCmd() {
-        const cmd = "curl -sSL https://getklarity.dev/install.sh | sh";
-        navigator.clipboard.writeText(cmd).then(() => {
-            const toast = document.getElementById('toast');
-            toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 2000);
-        });
-    }
-
-    // FIX 5: Spotlight Cursor Tracking
+    // Spotlight Cursor Tracking
     document.addEventListener('mousemove', (e) => {
         const spotlight = document.querySelector('.spotlight');
         spotlight.style.setProperty('--x', e.clientX + 'px');
