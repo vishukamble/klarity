@@ -14,9 +14,13 @@ import (
 // the given cluster, honoring the NamespaceFilter mode:
 //
 //   - include — return filter.Include verbatim (no API call)
-//   - all     — list all namespaces via API, subtract filter.Exclude
+//   - all     — list all namespaces via API, subtract filter.Exclude;
+//     if filter.Exclude is empty, subtract defaultExclude instead
 //   - exclude — list all namespaces via API, subtract filter.Exclude
-func ResolveNamespaces(ctx context.Context, cs kubernetes.Interface, filter config.NamespaceFilter) ([]string, error) {
+//
+// defaultExclude is applied only when mode == "all" and the cluster has no
+// explicit exclude list (filter.Exclude is empty). Pass nil to disable.
+func ResolveNamespaces(ctx context.Context, cs kubernetes.Interface, filter config.NamespaceFilter, defaultExclude []string) ([]string, error) {
 	switch filter.Mode {
 	case config.NamespaceModeInclude:
 		return filter.Include, nil
@@ -26,8 +30,15 @@ func ResolveNamespaces(ctx context.Context, cs kubernetes.Interface, filter conf
 		if err != nil {
 			return nil, fmt.Errorf("listing namespaces: %w", err)
 		}
-		exclude := make(map[string]bool, len(filter.Exclude))
-		for _, ns := range filter.Exclude {
+
+		// For mode=all with no explicit exclude, apply defaultExclude from settings.
+		excludeList := filter.Exclude
+		if filter.Mode == config.NamespaceModeAll && len(excludeList) == 0 {
+			excludeList = defaultExclude
+		}
+
+		exclude := make(map[string]bool, len(excludeList))
+		for _, ns := range excludeList {
 			exclude[ns] = true
 		}
 		var result []string

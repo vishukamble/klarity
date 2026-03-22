@@ -8,9 +8,10 @@ import (
 
 func TestNoEndpointsClassifier(t *testing.T) {
 	tests := []struct {
-		name    string
-		results ScanResults
-		wantLen int
+		name        string
+		results     ScanResults
+		wantLen     int
+		wantPodName string
 	}{
 		{
 			name:    "empty input",
@@ -30,7 +31,8 @@ func TestNoEndpointsClassifier(t *testing.T) {
 					},
 				},
 			},
-			wantLen: 1,
+			wantLen:     1,
+			wantPodName: "api-svc",
 		},
 		{
 			name: "multiple services with no endpoints",
@@ -63,6 +65,9 @@ func TestNoEndpointsClassifier(t *testing.T) {
 			}
 			if f.DetailFields["selector"] == "" {
 				t.Error("DetailFields missing selector")
+			}
+			if tt.wantPodName != "" && f.PodName != tt.wantPodName {
+				t.Errorf("PodName = %q, want %q", f.PodName, tt.wantPodName)
 			}
 		})
 	}

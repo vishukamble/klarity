@@ -24,6 +24,7 @@ type PodIssue struct {
 	PendingSince     time.Time // populated when Reason == "Pending"
 	LogSummary       string    // one-line log extract; set by scan loop after FEAT-18/19; empty until then
 	VolumeClaimNames []string  // PVC names referenced by pod spec volumes; populated for Pending pods
+	HasLivenessProbe bool      // true if the container has a liveness probe defined
 }
 
 // unhealthyWaitingReasons are container waiting reasons that indicate a problem.
@@ -119,6 +120,21 @@ func pendingMessage(pod corev1.Pod) string {
 	return ""
 }
 
+// containerHasLivenessProbe checks if a named container in the pod spec has a liveness probe.
+func containerHasLivenessProbe(pod corev1.Pod, containerName string) bool {
+	for _, c := range pod.Spec.Containers {
+		if c.Name == containerName {
+			return c.LivenessProbe != nil
+		}
+	}
+	for _, c := range pod.Spec.InitContainers {
+		if c.Name == containerName {
+			return c.LivenessProbe != nil
+		}
+	}
+	return false
+}
+
 // inspectContainerStatuses extracts PodIssues from a slice of ContainerStatus
 // entries belonging to pod.
 func inspectContainerStatuses(pod corev1.Pod, statuses []corev1.ContainerStatus) []PodIssue {
@@ -127,14 +143,15 @@ func inspectContainerStatuses(pod corev1.Pod, statuses []corev1.ContainerStatus)
 		// Unhealthy waiting state (CrashLoopBackOff, ImagePullBackOff, …)
 		if cs.State.Waiting != nil && unhealthyWaitingReasons[cs.State.Waiting.Reason] {
 			issues = append(issues, PodIssue{
-				Namespace:     pod.Namespace,
-				PodName:       pod.Name,
-				ContainerName: cs.Name,
-				Reason:        cs.State.Waiting.Reason,
-				Phase:         string(pod.Status.Phase),
-				Image:         cs.Image,
-				RestartCount:  cs.RestartCount,
-				Message:       cs.State.Waiting.Message,
+				Namespace:        pod.Namespace,
+				PodName:          pod.Name,
+				ContainerName:    cs.Name,
+				Reason:           cs.State.Waiting.Reason,
+				Phase:            string(pod.Status.Phase),
+				Image:            cs.Image,
+				RestartCount:     cs.RestartCount,
+				Message:          cs.State.Waiting.Message,
+				HasLivenessProbe: containerHasLivenessProbe(pod, cs.Name),
 			})
 		}
 

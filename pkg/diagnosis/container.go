@@ -9,7 +9,7 @@ import (
 // ── ContainerErrorClassifier ─────────────────────────────────────────────────
 
 // ContainerErrorClassifier catches pods with container-start errors
-// (CreateContainerConfigError, RunContainerError, InvalidImageName, Evicted)
+// (CreateContainerConfigError, RunContainerError, InvalidImageName)
 // that are not covered by other classifiers.
 type ContainerErrorClassifier struct{}
 
@@ -27,9 +27,6 @@ func (ContainerErrorClassifier) Classify(results ScanResults) []Finding {
 			sev = SeverityWarning
 		case "InvalidImageName":
 			oneLiner = classifyImageNameError(p.Message)
-			sev = SeverityWarning
-		case "Evicted":
-			oneLiner = classifyEviction(p.Message)
 			sev = SeverityWarning
 		default:
 			continue

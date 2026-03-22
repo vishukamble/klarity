@@ -431,6 +431,10 @@ func wrapText(s string, maxWidth int) string {
 		breakAt = maxWidth
 	}
 
+	// Skip the space at the break point so the next line has no leading space.
+	if breakAt < len(s) && s[breakAt] == ' ' {
+		return s[:breakAt] + "\n" + s[breakAt+1:]
+	}
 	return s[:breakAt] + "\n" + s[breakAt:]
 }
 

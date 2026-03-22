@@ -80,16 +80,19 @@ Summary: 12 issues in prod | 1 in staging | 0 in dev
 
 | Resource | Checks |
 |---|---|
-| Pods | CrashLoopBackOff, ImagePullBackOff, OOMKilled, Pending, high restart count |
-| Deployments | unavailable replicas, ready/desired mismatch |
-| DaemonSets | desired vs ready, misscheduled pods |
-| StatefulSets | stuck rollouts, replica mismatch |
-| Services | no matching endpoints (selector mismatch) |
-| HPAs | at max replicas, metric overshoot, missing targets |
-| Jobs/CronJobs | failed jobs, suspended CronJobs, past deadline |
-| ResourceQuotas | approaching or exceeding quota |
 | PVCs | stuck in Pending |
 | Events | Warning events in last 15 min |
+| ResourceQuotas | approaching or exceeding quota |
+| StatefulSets | stuck rollouts, replica mismatch |
+| DaemonSets | desired vs ready, misscheduled pods |
+| Services | no matching endpoints (selector mismatch) |
+| HPAs | at max replicas, metric overshoot, missing targets |
+| Deployments | unavailable replicas, ready/desired mismatch |
+| Jobs/CronJobs | failed jobs, suspended CronJobs, past deadline |
+| Pods | CrashLoopBackOff, ImagePullBackOff, OOMKilled, Pending, high restart count |
+| Nodes | NotReady, MemoryPressure, DiskPressure, PIDPressure, NetworkUnavailable |
+| Warning Events | Classified by root cause: mount failures, config errors, probe failures, evictions, admission webhooks |
+
 
 ## Installation
 
@@ -125,6 +128,30 @@ klarity --category oom,crashloop
 # JSON output for CI
 klarity --output json
 ```
+## All Flags
+
+| Flag | Example | What it does |
+|---|---|---|
+| `--env` | `--env prod` | Scan only this environment |
+| `--context` | `--context prod-us-east-1` | Scan only this cluster |
+| `-n, --namespace` | `--namespace payments,analytics` | Scan only these namespaces (comma-separated) |
+| `--exclude-ns` | `--exclude-ns build-ns-1,build-ns-2` | Skip these namespaces (ignored if --namespace set) |
+| `--category` | `--category oom,crashloop,imagepull` | Show only these error categories |
+| `--watch` | `--watch` | Continuously scan and refresh |
+| `--interval` | `--interval 60` | Override scan interval in seconds |
+| `-o, --output` | `--output json` | Output format: `table` (default) or `json` |
+| `--log-lines` | `--log-lines 100` | Log lines to pull per pod for crash analysis |
+
+## Config Commands
+
+| Command | What it does |
+|---|---|
+| `klarity init` | Interactive setup wizard — detects environments, saves config |
+| `klarity config show` | Print current config |
+| `klarity config validate` | Validate config and verify cluster contexts exist in kubeconfig |
+| `klarity config edit` | Open config in `$EDITOR` |
+| `klarity slack setup` | Configure Slack notifications |
+
 
 ## Configuration
 

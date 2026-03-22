@@ -17,7 +17,7 @@ klarity
   → load ~/.klarityconfig.yaml
   → parallel goroutines per env×cluster (semaphore = parallel_clusters)
     → BuildClientset(context) — errors collected non-fatally
-    → ResolveNamespaces(filter) → []string
+    → ResolveNamespaces(filter, cfg.Settings.DefaultNsExclude) → []string
     → for each namespace: ListUnhealthyPods/Deployments/HPAs/Services/Events/
                           Quotas/PVCs/DaemonSets/StatefulSets/Jobs/CronJobs
     → FetchLogs for CrashLoop pods → Summarize → PodIssue.LogSummary
@@ -35,6 +35,54 @@ klarity
 - CLAUDE.md: classifiers return data, output layer is only formatter; never mutate K8s resources
 
 ## Previous Session Summary
+
+**2026-03-22 — Session 28: ListWarningEvents — include Normal/BackOff events for image pull classification**
+
+| File | What it does |
+|---|---|
+| `pkg/kube/events.go` | Second `List()` call: `type=Normal,reason=BackOff`. `addEvent()` helper deduplicates by (namespace, objectName, reason, message) and filters Normal events to BackOff-only. Fallback: if "field label not supported" error, fetches all Normal events and filters in Go. |
+| `pkg/kube/events_test.go` | `makeTypedEvent()` helper (accepts event type param). `TestListWarningEvents_IncludesNormalBackOff` — verifies Warning/Failed included, Normal/BackOff included, Normal/Pulling excluded. `TestListWarningEvents_DeduplicatesBackOff` — verifies single finding after dedup when fake client returns events from both calls. |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (all pass)
+
+**2026-03-22 — Session 27: Audit fixes — DefaultNsExclude, NoEndpoints PodName, wrapText, Evicted dedup, CLAUDE.md**
+
+5 targeted fixes from codebase audit:
+
+| Fix | File(s) | Summary |
+|---|---|---|
+| L3: DefaultNsExclude never applied | `pkg/kube/namespaces.go`, `cmd/root.go`, `pkg/kube/namespaces_test.go` | Added `defaultExclude []string` param to `ResolveNamespaces()`; applied for mode=all with empty cluster exclude; 4 new tests |
+| M4: NoEndpoints Service column "-" | `pkg/diagnosis/noendpoints.go`, `noendpoints_test.go` | Set `finding.PodName = s.ServiceName`; test updated with `wantPodName` field |
+| H2: wrapText leading space | `pkg/output/table.go`, `pkg/output/output_test.go` | Skip space at break point; second line no longer has leading space |
+| M3: Evicted duplicate finding | `pkg/diagnosis/container.go`, `container_test.go` | Removed Evicted case from ContainerErrorClassifier; EventClassifier is sole handler |
+| L1+L2: CLAUDE.md stale refs | `CLAUDE.md` | Removed broken brainstorm.md reference; corrected errgroup→WaitGroup+semaphore; added DefaultNsExclude behavior note |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (all pass)
+
+**2026-03-22 — Session 26: Complete rewrite of image pull event handling**
+
+Replaced single-event dedup with multi-event scan for image pull classification:
+
+| File | What it does |
+|---|---|
+| `pkg/diagnosis/events.go` | New `isImagePullGroup()` detects if an event group is image-pull related. New `classifyImagePullGroup(events, objectName)` scans ALL events: (1) extract image from any event with `pulling image "..."`, (2) find diagnostic signal from any event, (3) fall back to `guessImagePullCause` with image, (4) actionable fallback with object name. `Classify()` routes image-pull groups through this path before reason-based dispatch. `bestEventForObject()` simplified to signal-first (used only for non-image-pull). All fallback messages changed from "check ErrImagePull reason above" to "check pod events for details" or `kubectl describe pod <name>`. |
+| `pkg/diagnosis/events_test.go` | 1 new regression test: `ManyFailedFewBackOff_ImageExtracted` — 3 Failed + 2 BackOff events for same pod, verifies image extracted from BackOff and `guessImagePullCause` called. Updated 2 fallback message expectations. |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (538 test runs, all pass)
+
+**2026-03-22 — Session 25: Image pull event dedup fix + CrashLoop probe-killed detection**
+
+Two fixes:
+
+| File | What it does |
+|---|---|
+| `pkg/diagnosis/events.go` | Fix 1: `bestEventForObject()` now uses 4-tier priority: (1) image+signal (e.g. ErrImagePull with "manifest unknown"), (2) signal only, (3) image only (e.g. BackOff with "pulling image"), (4) first event. Ensures events with diagnostic detail win over generic ones, while BackOff events with image names still beat Failed events with no image. |
+| `pkg/diagnosis/events_test.go` | 1 new test: `TestEventClassifier_FailedThenBackOff_ImageWins` — "Failed" + "Error: ImagePullBackOff" vs "BackOff" + `pulling image "nginx:1.25"` → BackOff wins, image extracted. |
+| `pkg/diagnosis/crashloop.go` | Fix 2: `looksLikeCleanExit()` detects clean shutdown patterns ([notice]+exit, signal 15, SIGTERM, graceful shutdown/stop, server shutting down). When `HasLivenessProbe` is true and log looks like clean exit, replaces OneLiner with "Process exited cleanly — likely killed by liveness probe". |
+| `pkg/diagnosis/crashloop_test.go` | 9 new probe-killed detection subtests (nginx exit with/without probe, SIGTERM, graceful shutdown/stop, server shutting down, actual error not probe-killed, empty log) + 9 `looksLikeCleanExit` table tests. |
+| `pkg/kube/pods.go` | Added `HasLivenessProbe bool` to `PodIssue`, `containerHasLivenessProbe()` helper, populated in `inspectContainerStatuses()`. |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (537 test runs, all pass)
 
 **2026-03-22 — Session 24: FEAT-27 through FEAT-32**
 

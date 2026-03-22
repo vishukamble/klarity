@@ -28,6 +28,7 @@ func (NoEndpointsClassifier) Classify(results ScanResults) []Finding {
 			EnvName:    results.EnvName,
 			ClusterCtx: results.ClusterCtx,
 			Namespace:  s.Namespace,
+			PodName:    s.ServiceName,
 			OneLiner:   oneLiner,
 			DetailFields: map[string]string{
 				"selector": selectorStr,

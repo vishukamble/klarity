@@ -470,15 +470,6 @@ func TestContainerErrorClassifier(t *testing.T) {
 			},
 		},
 		{
-			name:    "Evicted",
-			reason:  "Evicted",
-			message: `The node was low on resource: ephemeral-storage.`,
-			wantLen: 1,
-			check: func(f Finding) bool {
-				return strings.Contains(f.OneLiner, "ephemeral storage")
-			},
-		},
-		{
 			name:    "non-matching reason ignored",
 			reason:  "CrashLoopBackOff",
 			message: "restart",

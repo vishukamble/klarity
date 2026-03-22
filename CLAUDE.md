@@ -45,9 +45,10 @@ klarity/
 - Config file is `~/.klarityconfig.yaml` — NOT `.klarity.yaml`, NOT `klarity.yml`. Be consistent.
 - Environment is the top-level grouping in config, not cluster. Structure: `environments[] → clusters[] → namespaces{}`.
 - All Kubernetes API calls MUST go through `pkg/kube/` — never call client-go directly from `cmd/` or `diagnosis/`.
+- `settings.default_ns_exclude` (default: `kube-system`, `kube-public`, `kube-node-lease`, `default`) is applied by `ResolveNamespaces()` when mode=`all` and the cluster has no explicit `exclude` list. It is ignored for mode=`include` or mode=`exclude`, and overridden when the cluster specifies its own exclude list.
 - Error classifiers in `pkg/diagnosis/` must implement a common interface. Each classifier returns structured results, not formatted strings.
 - The `pkg/output/` layer is the ONLY place that formats for terminal display. Classifiers return data, output renders it.
-- Parallel cluster scanning uses goroutines with `errgroup`. Respect `settings.parallel_clusters` from config as concurrency limit.
+- Parallel cluster scanning uses goroutines with `WaitGroup + semaphore` (not errgroup). Respect `settings.parallel_clusters` from config as concurrency limit.
 - Log parsing in `pkg/logs/` extracts one-line summaries. MUST handle: Java (Caused by), Python (last traceback line), Go (panic/fatal error), generic (FATAL/Error first match), fallback (last non-empty line).
 
 ## Caveats
@@ -69,4 +70,3 @@ Lint: `golangci-lint`
 
 - @docs/REMEMBER.md — current project state, what's implemented, what's next
 - @docs/HANDOFF.md — session continuity notes for picking up where we left off
-- @docs/brainstorm.md — full design doc with output mockups and onboarding flow

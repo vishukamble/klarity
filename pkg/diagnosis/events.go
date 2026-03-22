@@ -49,9 +49,62 @@ func messageHasSignal(message string) bool {
 	return false
 }
 
-// bestEventForObject picks the most informative event from a group.
-// It prefers the event whose message has diagnostic signal content.
-// If none have signal, returns the first event in the slice (stable).
+// eventImagePullReasons are event reasons that may indicate an image pull problem.
+var eventImagePullReasons = map[string]bool{
+	"ErrImagePull": true,
+	"Failed":       true,
+	"BackOff":      true,
+}
+
+// isImagePullGroup returns true if any event in the group is image-pull related.
+func isImagePullGroup(events []kube.EventIssue) bool {
+	for _, ev := range events {
+		if !eventImagePullReasons[ev.Reason] {
+			continue
+		}
+		lower := strings.ToLower(ev.Message)
+		if strings.Contains(lower, "pulling image") ||
+			strings.Contains(lower, "pull image") ||
+			strings.Contains(lower, "imagepullbackoff") ||
+			strings.Contains(lower, "errimagepull") {
+			return true
+		}
+	}
+	return false
+}
+
+// classifyImagePullGroup scans ALL events for an object to produce the
+// best image-pull classification. It searches every event for an image
+// name and diagnostic signals rather than picking a single "best" event.
+func classifyImagePullGroup(events []kube.EventIssue, objectName string) string {
+	// Step 1: Extract image name from ANY event (pulling image "..." pattern).
+	var image string
+	for _, ev := range events {
+		if img := extractImageFromMessage(ev.Message); img != "" {
+			image = img
+			break
+		}
+	}
+
+	// Step 2: Look for diagnostic signal in ANY event message.
+	for _, ev := range events {
+		if messageHasSignal(ev.Message) {
+			// Found detail — classify that message with the image we found.
+			return classifyEventMessage(ev.Message, image)
+		}
+	}
+
+	// Step 3: No signal found. Use tag heuristics if we have an image.
+	if image != "" {
+		return guessImagePullCause(image, false)
+	}
+
+	// Step 4: No image, no signal — actionable fallback.
+	return fmt.Sprintf("Pull failing — run: kubectl describe pod %s for details", objectName)
+}
+
+// bestEventForObject picks the most informative non-image-pull event from
+// a group. Used for events that aren't handled by classifyImagePullGroup.
 func bestEventForObject(events []kube.EventIssue) kube.EventIssue {
 	for _, ev := range events {
 		if messageHasSignal(ev.Message) {
@@ -59,18 +112,6 @@ func bestEventForObject(events []kube.EventIssue) kube.EventIssue {
 		}
 	}
 	return events[0]
-}
-
-// collectImageFromGroup tries to extract an image name from any event
-// in the group. This allows us to show the image even when the best
-// event's message doesn't contain it.
-func collectImageFromGroup(events []kube.EventIssue) string {
-	for _, ev := range events {
-		if img := extractImageFromMessage(ev.Message); img != "" {
-			return img
-		}
-	}
-	return ""
 }
 
 // imageRe extracts image name from messages like:
@@ -230,7 +271,7 @@ func classifyEventMessage(message, image string) string {
 		if image != "" {
 			return guessImagePullCause(image, false)
 		}
-		return "Pull failing repeatedly — check ErrImagePull reason above"
+		return "Pull failing — check pod events for details"
 	}
 
 	// Fallback: return message as-is (no truncation — let the terminal wrap).
@@ -261,7 +302,7 @@ func classifyBackOff(message, image string) string {
 		if image != "" {
 			return guessImagePullCause(image, false)
 		}
-		return "Pull failing repeatedly — check ErrImagePull reason above"
+		return "Pull failing — check pod events for details"
 	}
 
 	// Fallback: show the message without truncation.
@@ -279,32 +320,33 @@ func (EventClassifier) Classify(results ScanResults) []Finding {
 	var findings []Finding
 	for _, k := range order {
 		events := grouped[k]
-		best := bestEventForObject(events)
-		image := collectImageFromGroup(events)
-		hasSignal := messageHasSignal(best.Message)
 
 		var why string
-		// Reason-based dispatch for specialized classifiers.
-		switch best.Reason {
-		case "FailedMount":
-			why = classifyMountError(best.Message)
-		case "Unhealthy":
-			why = classifyProbeFailure(best.Message)
-		case "FailedCreate":
-			why = classifyFailedCreate(best.Message)
-		case "FailedCreatePodSandBox":
-			why = classifySandboxError(best.Message)
-		case "Evicted":
-			why = classifyEviction(best.Message)
-		case "BackOff":
-			why = classifyBackOff(best.Message, image)
-		default:
-			if !hasSignal && image != "" &&
-				(best.Reason == "ErrImagePull" || best.Reason == "Failed") {
-				// No detailed error — use tag heuristics.
-				why = guessImagePullCause(image, false)
-			} else {
-				why = classifyEventMessage(best.Message, image)
+		var best kube.EventIssue
+
+		// Image-pull events get special multi-event handling.
+		if isImagePullGroup(events) {
+			why = classifyImagePullGroup(events, k.name)
+			best = bestEventForObject(events)
+		} else {
+			best = bestEventForObject(events)
+
+			// Reason-based dispatch for specialized classifiers.
+			switch best.Reason {
+			case "FailedMount":
+				why = classifyMountError(best.Message)
+			case "Unhealthy":
+				why = classifyProbeFailure(best.Message)
+			case "FailedCreate":
+				why = classifyFailedCreate(best.Message)
+			case "FailedCreatePodSandBox":
+				why = classifySandboxError(best.Message)
+			case "Evicted":
+				why = classifyEviction(best.Message)
+			case "BackOff":
+				why = classifyBackOff(best.Message, extractImageFromMessage(best.Message))
+			default:
+				why = classifyEventMessage(best.Message, extractImageFromMessage(best.Message))
 			}
 		}
 

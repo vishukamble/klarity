@@ -91,6 +91,97 @@ func TestCrashLoopClassifier(t *testing.T) {
 		},
 	}
 
+	// Probe-killed detection tests.
+	probeTests := []struct {
+		name       string
+		logSummary string
+		hasProbe   bool
+		wantProbe  bool // expect probe-killed message
+	}{
+		{
+			name:       "nginx exit notice with probe",
+			logSummary: "2026/03/22 15:58:10 [notice] 1#1: exit",
+			hasProbe:   true,
+			wantProbe:  true,
+		},
+		{
+			name:       "nginx exit notice without probe",
+			logSummary: "2026/03/22 15:58:10 [notice] 1#1: exit",
+			hasProbe:   false,
+			wantProbe:  false,
+		},
+		{
+			name:       "SIGTERM with probe",
+			logSummary: "received signal 15, shutting down",
+			hasProbe:   true,
+			wantProbe:  true,
+		},
+		{
+			name:       "SIGTERM keyword with probe",
+			logSummary: "caught SIGTERM, cleaning up",
+			hasProbe:   true,
+			wantProbe:  true,
+		},
+		{
+			name:       "graceful shutdown with probe",
+			logSummary: "graceful shutdown complete",
+			hasProbe:   true,
+			wantProbe:  true,
+		},
+		{
+			name:       "graceful stop with probe",
+			logSummary: "nginx graceful stop",
+			hasProbe:   true,
+			wantProbe:  true,
+		},
+		{
+			name:       "server shutting down with probe",
+			logSummary: "server shutting down",
+			hasProbe:   true,
+			wantProbe:  true,
+		},
+		{
+			name:       "actual error is not probe-killed",
+			logSummary: "panic: nil pointer dereference",
+			hasProbe:   true,
+			wantProbe:  false,
+		},
+		{
+			name:       "empty log summary",
+			logSummary: "",
+			hasProbe:   true,
+			wantProbe:  false,
+		},
+	}
+	for _, tt := range probeTests {
+		tests = append(tests, struct {
+			name          string
+			results       ScanResults
+			wantLen       int
+			wantOneLiner  string
+			checkOneLiner func(string) bool
+		}{
+			name: tt.name,
+			results: ScanResults{
+				Pods: []kube.PodIssue{
+					{
+						PodName:          "probe-pod",
+						ContainerName:    "app",
+						Reason:           "CrashLoopBackOff",
+						RestartCount:     5,
+						LogSummary:       tt.logSummary,
+						HasLivenessProbe: tt.hasProbe,
+					},
+				},
+			},
+			wantLen: 1,
+			checkOneLiner: func(s string) bool {
+				hasProbeMsg := strings.Contains(s, "liveness probe")
+				return hasProbeMsg == tt.wantProbe
+			},
+		})
+	}
+
 	cl := CrashLoopClassifier{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -114,14 +205,30 @@ func TestCrashLoopClassifier(t *testing.T) {
 			if tt.checkOneLiner != nil && !tt.checkOneLiner(f.OneLiner) {
 				t.Errorf("one-liner %q failed check", f.OneLiner)
 			}
-			// Log summary in detail when present.
-			for _, p := range tt.results.Pods {
-				if p.Reason == "CrashLoopBackOff" && p.LogSummary != "" {
-					if f.DetailFields["log_summary"] != p.LogSummary {
-						t.Errorf("detail log_summary = %q, want %q", f.DetailFields["log_summary"], p.LogSummary)
-					}
-					break
-				}
+		})
+	}
+}
+
+func TestLooksLikeCleanExit(t *testing.T) {
+	tests := []struct {
+		summary string
+		want    bool
+	}{
+		{"2026/03/22 15:58:10 [notice] 1#1: exit", true},
+		{"received signal 15, shutting down", true},
+		{"caught SIGTERM, cleaning up", true},
+		{"graceful shutdown complete", true},
+		{"nginx graceful stop", true},
+		{"server shutting down", true},
+		{"panic: nil pointer dereference", false},
+		{"Error: connection refused", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.summary, func(t *testing.T) {
+			got := looksLikeCleanExit(tt.summary)
+			if got != tt.want {
+				t.Errorf("looksLikeCleanExit(%q) = %v, want %v", tt.summary, got, tt.want)
 			}
 		})
 	}

@@ -3,6 +3,7 @@ package kube
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -21,23 +22,57 @@ type EventIssue struct {
 	LastTimestamp time.Time
 }
 
-// ListWarningEvents returns all Warning events in namespace whose last
-// occurrence falls within the given lookback window (e.g., 15 * time.Minute).
+// ListWarningEvents returns Warning events plus Normal/BackOff events (which
+// carry image-pull context) in namespace whose last occurrence falls within
+// the given lookback window (e.g., 15 * time.Minute).
 func ListWarningEvents(ctx context.Context, cs kubernetes.Interface, namespace string, lookback time.Duration) ([]EventIssue, error) {
-	events, err := cs.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
+	// First call: all Warning events.
+	warnList, err := cs.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
 		FieldSelector: "type=" + corev1.EventTypeWarning,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("listing events in %q: %w", namespace, err)
+		return nil, fmt.Errorf("listing warning events in %q: %w", namespace, err)
+	}
+
+	// Second call: Normal/BackOff events — these carry the image name in their
+	// message and are needed by classifyImagePullGroup().
+	normalList, err := cs.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
+		FieldSelector: "type=" + corev1.EventTypeNormal + ",reason=BackOff",
+	})
+	if err != nil {
+		// Some clusters don't support compound field selectors — fall back to
+		// fetching all Normal events and filtering by reason in Go.
+		if strings.Contains(err.Error(), "field label not supported") {
+			normalList, err = cs.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
+				FieldSelector: "type=" + corev1.EventTypeNormal,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("listing normal events in %q: %w", namespace, err)
+			}
+		} else {
+			return nil, fmt.Errorf("listing backoff events in %q: %w", namespace, err)
+		}
 	}
 
 	cutoff := time.Now().Add(-lookback)
+	seen := make(map[string]bool)
 	var issues []EventIssue
-	for _, ev := range events.Items {
+
+	addEvent := func(ev corev1.Event) {
+		// For Normal events only include BackOff reason — everything else is noise.
+		if ev.Type == corev1.EventTypeNormal && ev.Reason != "BackOff" {
+			return
+		}
 		last := eventLastTime(ev)
 		if last.IsZero() || last.Before(cutoff) {
-			continue
+			return
 		}
+		// Deduplicate by (namespace, objectName, reason, message).
+		key := ev.Namespace + "\x00" + ev.InvolvedObject.Name + "\x00" + ev.Reason + "\x00" + ev.Message
+		if seen[key] {
+			return
+		}
+		seen[key] = true
 		issues = append(issues, EventIssue{
 			Namespace:     ev.Namespace,
 			ObjectName:    ev.InvolvedObject.Name,
@@ -47,6 +82,13 @@ func ListWarningEvents(ctx context.Context, cs kubernetes.Interface, namespace s
 			Count:         ev.Count,
 			LastTimestamp: last,
 		})
+	}
+
+	for _, ev := range warnList.Items {
+		addEvent(ev)
+	}
+	for _, ev := range normalList.Items {
+		addEvent(ev)
 	}
 	return issues, nil
 }

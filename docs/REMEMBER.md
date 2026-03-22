@@ -5,8 +5,8 @@
 ## Current State
 
 **Last updated:** 2026-03-22
-**Last session focus:** FEAT-27 through FEAT-32 — node scanner, config edit/validate, --version, watch mode, JSON restructure
-**Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (517 test runs, all pass)
+**Last session focus:** ListWarningEvents — second API call for Normal/BackOff events to capture image names for classifyImagePullGroup()
+**Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass)
 
 ## Project Initialization
 
@@ -91,6 +91,25 @@ Also added:
 ## Known Issues / Blockers
 
 _None._
+
+## ListWarningEvents BackOff Fix (2026-03-22, Session 28)
+
+- **Root cause** — `classifyImagePullGroup()` couldn't extract image names because Normal/BackOff events (which carry `Back-off pulling image "..."`) were never fetched; only `type=Warning` events were collected
+- **Fix** — `pkg/kube/events.go`: second `List()` call with `FieldSelector: "type=Normal,reason=BackOff"`; results merged into single slice; deduplication by `(namespace, objectName, reason, message)` using `\x00`-separated key; Normal events with any reason other than BackOff filtered out in `addEvent()`
+- **Fallback** — if cluster returns "field label not supported" for the compound selector, retries with `type=Normal` and filters `reason=="BackOff"` in Go
+- **Tests added** — `makeTypedEvent()` helper; `TestListWarningEvents_IncludesNormalBackOff` (Warning/Failed included, Normal/BackOff included, Normal/Pulling excluded); `TestListWarningEvents_DeduplicatesBackOff` (fake client returns events from both calls, dedup ensures single finding)
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (all pass)
+
+## Audit Fixes (2026-03-22, Session 27)
+
+- **L3: DefaultNsExclude never applied** — Added `defaultExclude []string` parameter to `ResolveNamespaces()`; call site in `cmd/root.go` passes `cfg.Settings.DefaultNsExclude`; 4 new tests covering all mode interactions; `CLAUDE.md` updated with DefaultNsExclude behavior note
+- **M4: NoEndpoints shows '-' instead of service name** — Set `finding.PodName = s.ServiceName` in `pkg/diagnosis/noendpoints.go`; test updated with `wantPodName` field
+- **H2: wrapText leading space** — Fixed `wrapText()` to skip space at break point so second line has no leading space; test expectation updated
+- **M3: Evicted duplicate finding** — Removed `Evicted` case from `ContainerErrorClassifier`; integration test removed; `EventClassifier` is the sole handler for Evicted events
+- **L1+L2: CLAUDE.md stale references** — Removed broken `@docs/brainstorm.md` reference; corrected "errgroup" to "WaitGroup + semaphore"
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (all pass)
 
 ## Audit Fixes (2026-03-21, Session 9)
 
@@ -206,12 +225,24 @@ Other changes:
 - 2026-03-22: `BackOff` event reason gets dedicated `classifyBackOff()` dispatch — distinguishes CrashLoopBackOff ("restarting failed container") from ImagePullBackOff ("pulling image"); removed `BackOff` from generic `guessImagePullCause` path in default switch case
 - 2026-03-22: `classifyEventMessage()` fallback no longer truncates with `...` — returns message as-is, terminal handles wrapping
 - 2026-03-22: `classifyBackOff()` extracts pod name from "in pod <name>_namespace(...)" for actionable kubectl command in CrashLoopBackOff case
+- 2026-03-22: Image pull events use `classifyImagePullGroup()` which scans ALL events for image names and signals, instead of picking one "best" event — guaranteed to find image from BackOff events regardless of how many Failed events exist
+- 2026-03-22: `isImagePullGroup()` detects image-pull groups by checking if any event has pulling/pull image/imagepullbackoff/errimagepull in its message with a matching reason
+- 2026-03-22: `bestEventForObject()` simplified back to signal-first, used only for non-image-pull events
+- 2026-03-22: All fallback messages for image pull failures changed from "check ErrImagePull reason above" to actionable "check pod events for details" or "kubectl describe pod <name>"
+- 2026-03-22: `HasLivenessProbe` field on `PodIssue` — populated from pod spec by `containerHasLivenessProbe()`; used by CrashLoopClassifier to detect probe-killed exits
+- 2026-03-22: `looksLikeCleanExit()` detects clean shutdown patterns ([notice]+exit, signal 15, SIGTERM, graceful shutdown/stop, server shutting down); combined with `HasLivenessProbe` to suggest probe-killed diagnosis
 - 2026-03-22: `buildEnvironmentsFromInput()` is the testable core of fallback path — takes names + assignments, returns `[]config.Environment`, validates empty names and missing clusters
 - 2026-03-22: `config.InferTier()` exported wrapper for `tierForLabel()` — used by fallback path to set tier from user-entered env name
 - 2026-03-22: Fallback path shows confirmation summary before saving ("Ready to save: ..."); user can decline with `Save to ~/.klarityconfig.yaml? [N]`
 - 2026-03-22: Fallback path validates per-env cluster selection inline (warns + skips empty envs) and fails early if no environments have clusters
 - 2026-03-22: `buildEnvironmentsFromInput()` looks up assignments by original key then trimmed key — handles whitespace in form input
 - 2026-03-21: Warning Events table columns changed from `Reason | Message` to `Category | Why` — Category is the K8s reason, Why is the classified message
+- 2026-03-22: `ResolveNamespaces()` accepts `defaultExclude []string` as 4th param; applied only for mode=all with empty cluster exclude; ignored for include/exclude modes and when cluster has explicit exclude list
+- 2026-03-22: `NoEndpointsClassifier` sets `finding.PodName = s.ServiceName` so table Service column shows actual service name instead of "-"
+- 2026-03-22: `wrapText()` skips the space at break point — second line has no leading space character
+- 2026-03-22: `ContainerErrorClassifier` no longer handles Evicted reason — EventClassifier already handles Evicted events; removing from ContainerErrorClassifier eliminates duplicate findings
+- 2026-03-22: `ListWarningEvents()` makes two API calls — first for `type=Warning`, second for `type=Normal,reason=BackOff`; results merged and deduplicated by (namespace, objectName, reason, message); BackOff events contain image names needed by `classifyImagePullGroup()`; fallback to all-Normal fetch if cluster rejects compound field selector
+- 2026-03-22: Normal/BackOff events included in results even though type=Normal — `classifyImagePullGroup()` needs the image name from `Back-off pulling image "..."` messages; all other Normal event reasons are filtered out in Go
 
 ---
 

@@ -408,7 +408,7 @@ func TestWrapText(t *testing.T) {
 			name:     "long string with word break",
 			input:    "0/3 nodes are available: 3 Insufficient cpu. Pod requested 4 cores but max allocatable is 2 cores per node.",
 			maxWidth: 50,
-			want:     "0/3 nodes are available: 3 Insufficient cpu. Pod\n requested 4 cores but max allocatable is 2 cores per node.",
+			want:     "0/3 nodes are available: 3 Insufficient cpu. Pod\nrequested 4 cores but max allocatable is 2 cores per node.",
 		},
 		{
 			name:     "no spaces hard break",

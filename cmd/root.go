@@ -301,7 +301,7 @@ func scanCluster(
 		}
 	}
 
-	namespaces, err := kube.ResolveNamespaces(ctx, cs, nsFilter)
+	namespaces, err := kube.ResolveNamespaces(ctx, cs, nsFilter, cfg.Settings.DefaultNsExclude)
 	if err != nil {
 		return nil, []string{fmt.Sprintf("%s resolve namespaces: %v", prefix, err)}
 	}

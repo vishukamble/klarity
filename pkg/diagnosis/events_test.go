@@ -144,6 +144,59 @@ func TestEventClassifier_NoSignalFallbackWithImage(t *testing.T) {
 	}
 }
 
+func TestEventClassifier_FailedThenBackOff_ImageWins(t *testing.T) {
+	now := time.Now()
+
+	// Failed event comes first with generic message (no image).
+	// BackOff event comes second with extractable image.
+	// Image should be extracted from BackOff via multi-event scan.
+	results := ScanResults{
+		Events: []kube.EventIssue{
+			{Namespace: "ns", ObjectName: "pod-img", Reason: "Failed", Message: `Error: ImagePullBackOff`, Count: 1, LastTimestamp: now},
+			{Namespace: "ns", ObjectName: "pod-img", Reason: "BackOff", Message: `Back-off pulling image "nginx:1.25"`, Count: 5, LastTimestamp: now},
+		},
+	}
+	c := EventClassifier{}
+	got := c.Classify(results)
+	if len(got) != 1 {
+		t.Fatalf("got %d findings, want 1", len(got))
+	}
+	if !strings.Contains(got[0].OneLiner, "nginx:1.25") {
+		t.Errorf("OneLiner should contain image name, got %q", got[0].OneLiner)
+	}
+	if strings.Contains(got[0].OneLiner, "Pull failing") {
+		t.Errorf("should NOT show generic message, got %q", got[0].OneLiner)
+	}
+}
+
+func TestEventClassifier_ManyFailedFewBackOff_ImageExtracted(t *testing.T) {
+	now := time.Now()
+
+	// Regression test: 3 Failed events (generic) + 2 BackOff events (with image).
+	// The multi-event scan must find the image from the BackOff events.
+	results := ScanResults{
+		Events: []kube.EventIssue{
+			{Namespace: "payments", ObjectName: "pay-api-xxx", Reason: "Failed", Message: `Error: ImagePullBackOff`, Count: 10, LastTimestamp: now},
+			{Namespace: "payments", ObjectName: "pay-api-xxx", Reason: "Failed", Message: `Error: ImagePullBackOff`, Count: 8, LastTimestamp: now},
+			{Namespace: "payments", ObjectName: "pay-api-xxx", Reason: "Failed", Message: `Error: ImagePullBackOff`, Count: 5, LastTimestamp: now},
+			{Namespace: "payments", ObjectName: "pay-api-xxx", Reason: "BackOff", Message: `Back-off pulling image "nginx:1.25"`, Count: 12, LastTimestamp: now},
+			{Namespace: "payments", ObjectName: "pay-api-xxx", Reason: "BackOff", Message: `Back-off pulling image "nginx:1.25"`, Count: 9, LastTimestamp: now},
+		},
+	}
+	c := EventClassifier{}
+	got := c.Classify(results)
+	if len(got) != 1 {
+		t.Fatalf("got %d findings, want 1", len(got))
+	}
+	want := "Registry unreachable: nginx:1.25 — original error expired (>1h). Run: docker pull nginx:1.25 to diagnose"
+	if got[0].OneLiner != want {
+		t.Errorf("OneLiner = %q, want %q", got[0].OneLiner, want)
+	}
+	if got[0].DetailFields["object_name"] != "pay-api-xxx" {
+		t.Errorf("object_name = %q, want pay-api-xxx", got[0].DetailFields["object_name"])
+	}
+}
+
 func TestEventClassifier_NoSignalNonsenseTag(t *testing.T) {
 	now := time.Now()
 
@@ -356,7 +409,7 @@ func TestClassifyEventMessage(t *testing.T) {
 			name:    "ImagePullBackOff no image",
 			message: "ImagePullBackOff",
 			image:   "",
-			want:    "Pull failing repeatedly — check ErrImagePull reason above",
+			want:    "Pull failing — check pod events for details",
 		},
 		{
 			name:    "fallback short message",
@@ -618,7 +671,7 @@ func TestClassifyBackOff(t *testing.T) {
 			name:    "pulling image no image extracted",
 			message: `Back-off pulling image somewhere`,
 			image:   "",
-			want:    "Pull failing repeatedly — check ErrImagePull reason above",
+			want:    "Pull failing — check pod events for details",
 		},
 		{
 			name:    "generic backoff message",

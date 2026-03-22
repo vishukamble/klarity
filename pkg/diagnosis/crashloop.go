@@ -2,6 +2,7 @@ package diagnosis
 
 import (
 	"fmt"
+	"strings"
 )
 
 // CrashLoopClassifier finds containers in CrashLoopBackOff.
@@ -18,6 +19,12 @@ func (CrashLoopClassifier) Classify(results ScanResults) []Finding {
 		oneLiner := p.LogSummary
 		if oneLiner == "" {
 			oneLiner = fmt.Sprintf("Container %s crash-looping (restarts: %d)", p.ContainerName, p.RestartCount)
+		}
+
+		// Check for probe-killed exit: log looks like a clean shutdown but
+		// the container has a liveness probe, suggesting the probe killed it.
+		if p.HasLivenessProbe && looksLikeCleanExit(oneLiner) {
+			oneLiner = fmt.Sprintf("Process exited cleanly — likely killed by liveness probe (check probe config: kubectl describe pod %s)", p.PodName)
 		}
 
 		detail := map[string]string{
@@ -44,4 +51,26 @@ func (CrashLoopClassifier) Classify(results ScanResults) []Finding {
 		})
 	}
 	return findings
+}
+
+// looksLikeCleanExit returns true if a log summary line looks like a normal
+// graceful exit — not an application error.
+func looksLikeCleanExit(summary string) bool {
+	lower := strings.ToLower(summary)
+	patterns := []struct{ a, b string }{
+		{"[notice]", "exit"},
+		{"signal 15", ""},
+		{"sigterm", ""},
+		{"graceful shutdown", ""},
+		{"graceful stop", ""},
+		{"server shutting down", ""},
+	}
+	for _, p := range patterns {
+		if strings.Contains(lower, p.a) {
+			if p.b == "" || strings.Contains(lower, p.b) {
+				return true
+			}
+		}
+	}
+	return false
 }
