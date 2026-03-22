@@ -426,3 +426,60 @@ func TestWrapText(t *testing.T) {
 		})
 	}
 }
+
+// ── wrapLines tests ──────────────────────────────────────────────────────────
+
+func TestWrapLines(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		maxWidth int
+		want     string
+	}{
+		{
+			name:     "empty string",
+			input:    "",
+			maxWidth: 80,
+			want:     "",
+		},
+		{
+			name:     "short single line no wrap",
+			input:    "hello world",
+			maxWidth: 80,
+			want:     "hello world",
+		},
+		{
+			name:     "long single line wraps",
+			input:    "0/3 nodes are available: 3 Insufficient cpu. Pod requested 4 cores.",
+			maxWidth: 40,
+			want:     "0/3 nodes are available: 3 Insufficient\ncpu. Pod requested 4 cores.",
+		},
+		{
+			name:     "multi-line short lines preserved",
+			input:    "• 32 nodes: taint: CriticalAddonsOnly\n• 12 nodes: insufficient cpu",
+			maxWidth: 80,
+			want:     "• 32 nodes: taint: CriticalAddonsOnly\n• 12 nodes: insufficient cpu",
+		},
+		{
+			name:  "multi-line wraps each line independently",
+			input: "• first line that is definitely longer than forty chars\n• short line",
+			// "•" is 3 UTF-8 bytes, so s[:40] ends after "definitely" (byte 33 = last space).
+			maxWidth: 40,
+			want:     "• first line that is definitely\nlonger than forty chars\n• short line",
+		},
+		{
+			name:     "existing newline not double-wrapped",
+			input:    "line one\nline two",
+			maxWidth: 80,
+			want:     "line one\nline two",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wrapLines(tt.input, tt.maxWidth)
+			if got != tt.want {
+				t.Errorf("wrapLines(%q, %d) =\n  %q\nwant:\n  %q", tt.input, tt.maxWidth, got, tt.want)
+			}
+		})
+	}
+}

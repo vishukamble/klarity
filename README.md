@@ -1,113 +1,69 @@
-# klarity
+<h1 align="center">
+  <br>
+  ⬢ klarity
+  <br>
+</h1>
 
-**One command. Every cluster. Everything that's wrong.**
+<h4 align="center">One command. Every cluster. Everything that's wrong.</h4>
 
-klarity is a read-only Kubernetes diagnostic CLI that scans multiple clusters and namespaces in parallel, classifies unhealthy workloads by root cause, and renders categorized terminal tables with one-line error summaries.
+<p align="center">
+  <a href="https://github.com/vishukamble/klarity/releases">
+    <img src="https://img.shields.io/github/v/release/vishukamble/klarity?color=blue" alt="Release">
+  </a>
+  <a href="https://github.com/vishukamble/klarity/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License">
+  </a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey" alt="Platform">
+  <img src="https://img.shields.io/badge/built%20with-Go-00ADD8?logo=go" alt="Go">
+</p>
 
-It's an inspector, not a surgeon — it tells you what's broken and why, but never touches your resources.
+<p align="center">
+  <a href="#installation">Installation</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#what-klarity-scans">What It Scans</a> •
+  <a href="#all-flags">All Flags</a> •
+  <a href="#configuration">Configuration</a> •
+  <a href="#aks--azure-cli-authentication">AKS Auth</a>
+</p>
 
-[Website](https://getklarity.dev) · [Installation](#installation) · [Quick Start](#quick-start) · [Documentation](#documentation)
+<p align="center">
+  A read-only Kubernetes diagnostic CLI that scans multiple clusters in parallel,
+  classifies unhealthy workloads by root cause, and renders categorized terminal
+  tables with one-line error summaries. It tells you what's broken and why —
+  never touches your resources.
+</p>
 
 ---
 
 ## The Problem
 
-SREs managing multi-cluster environments piece together health status from dozens of `kubectl` commands across contexts and namespaces. Lens requires clicking through long lists. Neither answers the simple question:
+SREs managing multi-cluster environments piece together health status from dozens
+of `kubectl` commands across contexts and namespaces. Lens requires clicking 
+through long lists. Neither tool answers the simple question:
 
 > **"What's wrong across my entire environment right now, and why?"**
 
 klarity answers that in one command.
 
-## What It Does
-
-```
-╔══════════════════════════════════════════════════════════════════════╗
-║  klarity scan — 2026-03-21 14:32:07 CST                            ║
-║  Environments: 3 | Clusters: 7 scanned | Issues: 17 found          ║
-╚══════════════════════════════════════════════════════════════════════╝
-
-━━━ 🔴 PROD ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-── prod-us-east-1 ──────────────────────────────────────────────────
-
-🏷️  Image Tag Errors (3 pods)
-┌──────────────┬──────────────────┬───────────┬──────────────────────────────┐
-│ Namespace    │ Pod              │ Container │ Image                        │
-├──────────────┼──────────────────┼───────────┼──────────────────────────────┤
-│ payments     │ pay-api-7f8d-x   │ api       │ acr.io/pay-api:v2.14.0-tyop  │
-│ orders       │ order-svc-9a2-q  │ worker    │ acr.io/order-svc:lates       │
-└──────────────┴──────────────────┴───────────┴──────────────────────────────┘
-
-💀 OOMKilled (2 pods)
-┌──────────────┬──────────────────┬──────────┬──────────┬──────────┬────────────┐
-│ Namespace    │ Pod              │ Requests │ Limits   │ NS Quota │ Restarts   │
-├──────────────┼──────────────────┼──────────┼──────────┼──────────┼────────────┤
-│ ml-serving   │ model-inf-8x2-a  │ 512Mi    │ 1Gi      │ 8Gi/10Gi │ 14        │
-└──────────────┴──────────────────┴──────────┴──────────┴──────────┴────────────┘
-
-🔥 CrashLoopBackOff — Application Errors (2 pods)
-┌──────────────┬──────────────────┬──────────┬─────────────────────────────────────┐
-│ Namespace    │ Pod              │ Restarts │ Root Cause (from logs)               │
-├──────────────┼──────────────────┼──────────┼─────────────────────────────────────┤
-│ checkout     │ cart-svc-3d1-r   │ 47       │ FATAL: password auth failed "cartdb" │
-│ notifications│ email-wrk-1a-m   │ 12       │ ConnectionRefused: rabbitmq:5672     │
-└──────────────┴──────────────────┴──────────┴─────────────────────────────────────┘
-
-━━━ 🟢 DEV ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-✅ No issues found.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Summary: 12 issues in prod | 1 in staging | 0 in dev
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
-## Key Features
-
-- **Multi-cluster scanning** — reads your kubeconfig, scans all configured contexts in parallel via `client-go`
-- **Environment-aware** — auto-detects prod/staging/dev from context names, displays critical environments first
-- **Categorized error tables** — separate tables per root cause (OOM, image pull, crash loop, pending, HPA ceiling), not one overwhelming list
-- **One-line error summaries** — extracts root cause from logs: Java `Caused by`, Python tracebacks, Go panics, connection errors. No more reading 30-line stack traces
-- **OOM context** — shows requests, limits, and namespace quota usage alongside OOMKilled pods
-- **Image pull diagnostics** — distinguishes tag typos from 401 auth errors from registry timeouts
-- **HPA health** — flags HPAs pegged at max replicas or unable to meet target metrics
-- **Strictly read-only** — only `get`, `list`, and log tail operations. Safe to run against production
-- **Configure once** — `klarity init` onboarding wizard saves to `~/.klarityconfig.yaml`, then just run `klarity`
-- **Watch mode** — continuous scanning on a configurable interval
-- **JSON output** — `klarity --output json` for CI pipelines and automation
-
-## What klarity Scans
-
-| Resource | Checks |
-|---|---|
-| PVCs | stuck in Pending |
-| Events | Warning events in last 15 min |
-| ResourceQuotas | approaching or exceeding quota |
-| StatefulSets | stuck rollouts, replica mismatch |
-| DaemonSets | desired vs ready, misscheduled pods |
-| Services | no matching endpoints (selector mismatch) |
-| HPAs | at max replicas, metric overshoot, missing targets |
-| Deployments | unavailable replicas, ready/desired mismatch |
-| Jobs/CronJobs | failed jobs, suspended CronJobs, past deadline |
-| Pods | CrashLoopBackOff, ImagePullBackOff, OOMKilled, Pending, high restart count |
-| Nodes | NotReady, MemoryPressure, DiskPressure, PIDPressure, NetworkUnavailable |
-| Warning Events | Classified by root cause: mount failures, config errors, probe failures, evictions, admission webhooks |
-
+---
 
 ## Installation
-
 ```bash
-# Go install
-go install github.com/vishukamble/klarity@latest
-
-# Or download binary from releases
 curl -sSL https://getklarity.dev/install.sh | sh
 ```
 
-## Quick Start
-
+Or install with Go:
 ```bash
-# First-time setup — reads kubeconfig, detects environments, saves config
+go install github.com/vishukamble/klarity@latest
+```
+
+Supports **macOS** and **Linux** (amd64 + arm64).
+
+---
+
+## Quick Start
+```bash
+# First-time setup — detects environments from kubeconfig, saves config
 klarity init
 
 # Scan everything
@@ -119,15 +75,54 @@ klarity --env prod
 # Scan specific cluster
 klarity --context prod-us-east-1
 
-# Watch mode
+# Filter to specific namespaces
+klarity --namespace payments,analytics
+
+# Exclude namespaces under construction
+klarity --exclude-ns build-ns-1,build-ns-2
+
+# Watch mode — continuous scanning
 klarity --watch --interval 60
 
-# Filter by error category
-klarity --category oom,crashloop
-
-# JSON output for CI
-klarity --output json
+# JSON output for CI pipelines
+klarity --output json | jq '.summary'
 ```
+
+---
+
+## What klarity Scans
+
+| Resource | Checks |
+|---|---|
+| **Nodes** | NotReady, MemoryPressure, DiskPressure, PIDPressure, NetworkUnavailable |
+| **Pods** | CrashLoopBackOff with log-extracted root cause, ImagePullBackOff, OOMKilled, Pending |
+| **Deployments** | Unavailable replicas, ready/desired mismatch |
+| **DaemonSets** | Desired vs ready, misscheduled pods |
+| **StatefulSets** | Stuck rollouts, replica mismatch |
+| **Services** | No matching endpoints (selector mismatch) |
+| **HPAs** | At max replicas, metric overshoot, missing targets |
+| **Jobs / CronJobs** | Failed jobs, suspended CronJobs, deadline exceeded |
+| **ResourceQuotas** | Approaching or exceeding quota |
+| **PVCs** | Stuck in Pending, missing PVC references with typo suggestions |
+| **Warning Events** | Classified by root cause — mount failures, config errors, probe failures, evictions, admission webhooks, taint mismatches |
+
+### Error Classification
+
+klarity doesn't just report symptoms — it extracts root causes:
+
+| What Kubernetes says | What klarity tells you |
+|---|---|
+| `CrashLoopBackOff` | `FATAL: password auth failed for "cartdb"` |
+| `ImagePullBackOff` | `Likely typo: alpine:lates — did you mean 'latest'?` |
+| `ImagePullBackOff` | `Registry auth failed: acr.io/app:v1.2 — check imagePullSecret` |
+| `OOMKilled` | Container requests/limits + namespace quota usage |
+| `Pending` | `PVC 'data-pvcc' not found (did you mean 'data-pvc'?)` |
+| `Pending` | `4 nodes: GPU training pool — add toleration role=training-gpu` |
+| `Unhealthy` | `Liveness probe: connection refused — check port and initialDelaySeconds` |
+| `FailedMount` | `ConfigMap 'spark-conf' not found — verify it exists in this namespace` |
+
+---
+
 ## All Flags
 
 | Flag | Example | What it does |
@@ -152,11 +147,12 @@ klarity --output json
 | `klarity config edit` | Open config in `$EDITOR` |
 | `klarity slack setup` | Configure Slack notifications |
 
+---
 
 ## Configuration
 
-klarity stores config in `~/.klarityconfig.yaml`. The onboarding wizard generates this, but it's human-editable:
-
+klarity stores config in `~/.klarityconfig.yaml`. The onboarding wizard
+generates this automatically — it's human-editable for fine-tuning:
 ```yaml
 version: 1
 environments:
@@ -170,11 +166,10 @@ environments:
       - context: prod-us-west-2
         namespaces:
           mode: all
-          exclude: [kube-system, kube-public, kube-node-lease, default]
-  - name: staging
+  - name: dev
     tier: standard
     clusters:
-      - context: staging-us-east-1
+      - context: dev-us-east-1
         namespaces:
           mode: include
           include: [app-services, data-pipeline]
@@ -184,46 +179,44 @@ settings:
   scan_interval_seconds: 300
 ```
 
-Adding a new cluster is as simple as appending a few lines under the right environment.
+Adding a new cluster is appending a few lines under the right environment.
+Namespace filtering is per-cluster — mix `all`, `include`, and `exclude` modes
+across clusters in the same environment.
+
+---
 
 ## AKS / Azure CLI Authentication
 
-If you use Azure Kubernetes Service with `kubelogin` for authentication, be aware of a version-specific issue that affects multi-cluster scanning.
+If you use Azure Kubernetes Service with `kubelogin`, be aware of a version
+regression that affects multi-cluster scanning.
 
-**Last known good version:** `v0.1.17`
-**Regression introduced:** `v0.1.19`
+| | Version |
+|---|---|
+| ✅ Last known good | `v0.1.17` |
+| ❌ Regression introduced | `v0.1.19` |
 
-kubelogin v0.1.19 introduced a regression where `azurecli` token cache mode re-prompts for authentication on every context switch. Because klarity scans multiple clusters in parallel, this causes interactive auth prompts to block goroutines mid-scan, hanging the process.
+kubelogin v0.1.19 changed the `azurecli` token cache behavior, causing
+re-authentication prompts on every context switch. Because klarity scans
+clusters in parallel via goroutines, this blocks mid-scan.
 
-klarity automatically detects your kubelogin version at startup and prints a warning if >= 0.1.19 is found.
+klarity detects your kubelogin version at startup and warns if >= v0.1.19
+is found on AKS clusters.
 
-**Affected auth mode:** `azurecli` only. `spn` (service principal) and `workloadidentity` modes are **not affected** since they don't use interactive prompts.
+**Affected:** `azurecli` auth mode only.  
+**Not affected:** `spn` and `workloadidentity` modes.
 
-### Pinning to v0.1.17
-
+### Pin to v0.1.17
 ```bash
-# Direct download (Linux amd64)
-curl -Lo kubelogin.zip https://github.com/Azure/kubelogin/releases/download/v0.1.17/kubelogin-linux-amd64.zip
-unzip kubelogin.zip -d kubelogin-bin
-sudo mv kubelogin-bin/bin/linux_amd64/kubelogin /usr/local/bin/kubelogin
-
-# Direct download (macOS arm64)
+# macOS (arm64)
 curl -Lo kubelogin.zip https://github.com/Azure/kubelogin/releases/download/v0.1.17/kubelogin-darwin-arm64.zip
-unzip kubelogin.zip -d kubelogin-bin
-sudo mv kubelogin-bin/bin/darwin_arm64/kubelogin /usr/local/bin/kubelogin
+unzip kubelogin.zip && sudo mv bin/darwin_arm64/kubelogin /usr/local/bin/kubelogin
 
-# If installed via brew, pin after downgrading
-brew pin kubelogin
+# Linux (amd64)
+curl -Lo kubelogin.zip https://github.com/Azure/kubelogin/releases/download/v0.1.17/kubelogin-linux-amd64.zip
+unzip kubelogin.zip && sudo mv bin/linux_amd64/kubelogin /usr/local/bin/kubelogin
 ```
 
-All releases: https://github.com/Azure/kubelogin/releases/tag/v0.1.17
-
-## Documentation
-
-See the [docs](./docs/) directory for:
-- [Design Document](./docs/brainstorm.md) — full architecture, error categorization logic, output mockups
-- [Project State](./docs/REMEMBER.md) — current implementation status
-- [Contributing](./CONTRIBUTING.md)
+---
 
 ## Built With
 
@@ -232,13 +225,16 @@ See the [docs](./docs/) directory for:
 - [Charmbracelet](https://charm.sh/) — lipgloss, bubbletea, huh for terminal UI
 - [errgroup](https://pkg.go.dev/golang.org/x/sync/errgroup) — parallel cluster scanning
 
+---
+
 ## License
 
-[Apache 2.0](./LICENSE) *(or your chosen license)*
+[Apache 2.0](./LICENSE)
 
 ---
 
 <p align="center">
   <strong>klarity</strong> — because you shouldn't need 10 terminal tabs to know what's broken<br>
-  <a href="https://getklarity.dev">getklarity.dev</a>
+  <a href="https://getklarity.dev">getklarity.dev</a> •
+  <a href="https://github.com/vishukamble/klarity">GitHub</a>
 </p>

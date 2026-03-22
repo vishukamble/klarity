@@ -39,7 +39,7 @@ var categorySpecs = map[diagnosis.Category]catSpec{
 			return []string{
 				detailOr(f, "node_name", "-"),
 				detailOr(f, "condition", "-"),
-				f.OneLiner,
+				wrapText(f.OneLiner, wrapWidth),
 			}
 		},
 	},
@@ -98,7 +98,7 @@ var categorySpecs = map[diagnosis.Category]catSpec{
 				f.Namespace,
 				f.PodName,
 				detailOr(f, "pending_duration", "-"),
-				reason,
+				wrapLines(reason, wrapWidth),
 			}
 		},
 	},
@@ -177,7 +177,7 @@ var categorySpecs = map[diagnosis.Category]catSpec{
 		rowFn: func(f diagnosis.Finding) []string {
 			objName := detailOr(f, "object_name", "-")
 			reason := detailOr(f, "reason", "-")
-			return []string{f.Namespace, objName, reason, f.OneLiner}
+			return []string{f.Namespace, objName, reason, wrapText(f.OneLiner, wrapWidth)}
 		},
 	},
 }
@@ -187,7 +187,7 @@ func genericRow(f diagnosis.Finding) []string {
 	if name == "" {
 		name = "-"
 	}
-	return []string{f.Namespace, name, f.OneLiner}
+	return []string{f.Namespace, name, wrapText(f.OneLiner, wrapWidth)}
 }
 
 func prettySubtype(s string) string {
@@ -356,15 +356,10 @@ func renderCategorySection(w io.Writer, cat diagnosis.Category, findings []diagn
 		Border(lipgloss.NormalBorder()).
 		BorderStyle(TableBorderStyle).
 		StyleFunc(func(row, col int) lipgloss.Style {
-			base := TableCellStyle
 			if row == table.HeaderRow {
-				base = TableHeaderStyle
+				return TableHeaderStyle
 			}
-			// Namespace column (col 0): fixed min-width to prevent wrapping.
-			if col == 0 {
-				return base.Width(nsColWidth)
-			}
-			return base
+			return TableCellStyle
 		}).
 		Headers(spec.headers...).
 		Wrap(false)
@@ -438,8 +433,16 @@ func wrapText(s string, maxWidth int) string {
 	return s[:breakAt] + "\n" + s[breakAt:]
 }
 
-const wrapWidth = 80
+// wrapLines applies wrapText to each existing line independently. This is safe
+// for pre-formatted multi-line strings (e.g. bulleted scheduling reasons from
+// formatSchedulingReasons) where each individual line is already < maxWidth
+// but the total string length exceeds it.
+func wrapLines(s string, maxWidth int) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = wrapText(line, maxWidth)
+	}
+	return strings.Join(lines, "\n")
+}
 
-// nsColWidth is the fixed minimum width for the Namespace column,
-// preventing it from wrapping when adjacent columns have long content.
-const nsColWidth = 30
+const wrapWidth = 80
