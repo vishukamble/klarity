@@ -4,37 +4,113 @@
 
 ## What To Do Next
 
-**All Phase 1–8 features + FEAT-27–32 are complete.** Potential future work:
+Implement Phase 2 scanners in this order. Each scanner lives in `pkg/kube/`, takes `(ctx context.Context, cs kubernetes.Interface, namespace string)`, returns a slice of issue structs, and must have table tests using `k8s.io/client-go/kubernetes/fake`.
 
-1. **GitHub Actions release pipeline** — goreleaser, homebrew tap
-2. **Ingress/NetworkPolicy scanner** — detect misconfigured ingress rules
-3. **Custom classifier plugins** — user-defined patterns in config
+### 1. FEAT-04: Pod scanner — `pkg/kube/pods.go`
+
+List pods across namespaces. Identify and return structured `PodIssue` results for:
+- `CrashLoopBackOff` — container waiting with reason CrashLoopBackOff
+- `ImagePullBackOff` / `ErrImagePull` — container waiting with either reason
+- `OOMKilled` — container lastState terminated with reason OOMKilled
+- `Pending` — pod phase Pending (extract scheduling reason from conditions)
+- Init container failures — any init container not in running/succeeded state
+
+Return type: `[]PodIssue`. No formatting, no output — raw structured data only.
+
+Tests: fake client with pods in each state; verify correct reason/image/restart fields populated.
+
+### 2. FEAT-05: Deployment scanner — `pkg/kube/deployments.go`
+
+List deployments. Flag any where `unavailableReplicas > 0` OR `readyReplicas < spec.replicas`.
+
+Return type: `[]DeploymentIssue{Namespace, Name, DesiredReplicas, ReadyReplicas, UnavailableReplicas}`.
+
+Tests: fake client with healthy and degraded deployments; verify only degraded ones returned.
+
+### 3. FEAT-08: Event collector — `pkg/kube/events.go`
+
+List Warning-type events in the last 15 minutes for a namespace. Use `FieldSelector: "type=Warning"` and filter `LastTimestamp` (or `EventTime`) within the lookback window.
+
+Return type: `[]EventIssue{Namespace, ObjectName, ObjectKind, Reason, Message, Count, LastSeen}`.
+
+Tests: fake client with events inside and outside the window; verify only recent ones returned.
+
+**After all three scanners have passing tests, proceed to FEAT-12: Classifier interface** before building more scanners. The classifier interface (`pkg/diagnosis/classifier.go`) defines how scanner output is consumed — it must exist before writing classifiers for each scanner type.
+
+### Reminder: validation order after each change
+```
+go build -o klarity .   # must compile
+go vet ./...            # must pass
+go test ./...           # must pass
+```
+Add table tests for every new classifier. Do not skip validation.
 
 ### How the Full Pipeline Fits Together (implemented)
 
 ```
-klarity
+klarity (non-watch, table mode)
+  → --history N  →  showHistory() reads ~/.klarity.log, exits
   → load ~/.klarityconfig.yaml
+  → pkg/cache.Load(~/.klarity_cache)
+      hit  → RenderReport(cached findings) + "(cached Xm ago, scanning...)"
+           → gatherFindings() in background goroutine
+           → cache.Equal() → "✓ Still current" OR clearScreen + re-render
+      miss → doScan() → gatherFindings() → render
+  → cache.Save(~/.klarity_cache)  +  cache.AppendLog(~/.klarity.log)
+  → Slack notification (non-fatal)
+
+klarity --watch
+  → loop: clearScreen → doScan() → sleep(interval)
+  → doScan() writes cache + log after each iteration
+  → Ctrl-C exits cleanly
+
+gatherFindings()
   → parallel goroutines per env×cluster (semaphore = parallel_clusters)
     → BuildClientset(context) — errors collected non-fatally
     → ResolveNamespaces(filter, cfg.Settings.DefaultNsExclude) → []string
     → for each namespace: ListUnhealthyPods/Deployments/HPAs/Services/Events/
-                          Quotas/PVCs/DaemonSets/StatefulSets/Jobs/CronJobs
+                          Quotas/PVCs/DaemonSets/StatefulSets/Jobs/CronJobs/Nodes
     → FetchLogs for CrashLoop pods → Summarize → PodIssue.LogSummary
     → ListPVCNames per namespace → AllPVCNames map
     → ScanResults{EnvName, ClusterCtx, all scanner outputs, AllPVCNames}
     → RunAll(results, classifiers) → []Finding
-  → pkg/output.RenderReport (table) or RenderJSON (--output json)
 ```
 
 ### Context You'll Need
 
-- `cmd/root.go` — full scan orchestration, `--output`/`--env` flags, `scanCluster()`, `filterEnv()`
+- `cmd/root.go` — full scan orchestration; `gatherFindings()` / `doScan()` split; cache/log integration; `--history` flag
+- `pkg/cache/` — `cache.go` (Cache, Load, Save, Equal) + `log.go` (LogEntry, AppendLog, ReadLog, FilterLog)
 - `pkg/output/` — `RenderReport`, `RenderJSON`, `SummaryCounts`; do NOT call lipgloss from JSON path
 - `pkg/diagnosis/classifier.go` — Finding, Classifier interface, RunAll
 - CLAUDE.md: classifiers return data, output layer is only formatter; never mutate K8s resources
 
 ## Previous Session Summary
+
+**2026-03-23 — Session 30: Docs update — REMEMBER/HANDOFF aligned with session 29 work**
+
+Docs-only session. No Go code changed.
+
+| File | Change |
+|---|---|
+| `docs/REMEMBER.md` | FEAT-19/20/23 entries updated with session-29 additions noted; Phase 10 renamed to "Session Additions (not in original tracker)" with expanded entries for UX fixes, corpus, cache, history; 6 new architecture decision entries for cache/history design choices |
+| `docs/HANDOFF.md` | "What To Do Next" replaced with ordered Phase 2 scanner tasks (FEAT-04 pod, FEAT-05 deployment, FEAT-08 events → FEAT-12 classifier interface); pipeline diagram updated to show cache layer and watch-mode flow; context section updated with `pkg/cache/` references |
+
+Build: unchanged — ✅ `go build` | ✅ `go vet` | ✅ `go test` (260 tests)
+
+**2026-03-23 — Session 29: Bug fixes, classifier corpus, kube-system hint, instant cache + history**
+
+6 items implemented in one session:
+
+| Item | Files | Summary |
+|---|---|---|
+| BUG-01: Auto-select single cluster | `cmd/init.go`, `cmd/init_test.go` | `assignClusters(available, promptFn)` helper returns immediately for len==1 without calling promptFn; 3 new tests |
+| BUG-02: Re-prompt on empty cluster selection | `cmd/init.go`, `cmd/init_test.go` | `assignClusters` loops until non-empty selection; replaced old skip-env-on-empty behavior |
+| CORPUS-01: Go "command failed" log pattern | `pkg/logs/summarizer.go`, `summarizer_test.go` | `goCommandFailed()` parses `"command failed" err="[flag1, flag2]"` → "command failed: flag1 (and N more)"; priority above generic FATAL; 3 new tests |
+| HINT-01: kube-system excluded hint | `pkg/output/table.go` | `kubeSystemExcluded(cluster, defaultExclude)` helper; dim hint appended to "✅ No issues found" when kube-system is excluded |
+| FEAT-33: Instant cache display | `pkg/cache/cache.go`, `pkg/cache/cache_test.go`, `cmd/root.go` | Cache at `~/.klarity_cache`; `gatherFindings()` extracted from `doScan`; cache shown instantly + background goroutine + compare/re-render; `Equal()` for order-independent comparison; 10 tests |
+| FEAT-34: Scan history log + --history | `pkg/cache/log.go`, `pkg/cache/log_test.go`, `cmd/root.go` | NDJSON log at `~/.klarity.log`; `AppendLog/ReadLog/FilterLog`; `--history [N]` flag (NoOptDefVal=10); `--history --env prod` filter; 7 tests |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (260 test cases, all pass)
 
 **2026-03-22 — Session 28: ListWarningEvents — include Normal/BackOff events for image pull classification**
 

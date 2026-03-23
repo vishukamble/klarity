@@ -4,9 +4,9 @@
 
 ## Current State
 
-**Last updated:** 2026-03-22
-**Last session focus:** ListWarningEvents — second API call for Normal/BackOff events to capture image names for classifyImagePullGroup()
-**Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass)
+**Last updated:** 2026-03-23
+**Last session focus:** Bug fixes, classifier corpus, kube-system hint, instant cache + history features
+**Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass, 260 test cases)
 
 ## Project Initialization
 
@@ -49,13 +49,13 @@ Also added:
 
 ### Phase 4: Log Analysis
 - [x] **FEAT-18: Log tailer** — `pkg/logs/parser.go`. Real `FetchLogs` via `cs.CoreV1().Pods(ns).GetLogs()` with `TailLines` + `Previous`. 3 tests. (2026-03-21)
-- [x] **FEAT-19: One-line summarizer** — `pkg/logs/summarizer.go`. Language-aware extraction: Java (last `Caused by:`), Python (exception after last traceback header), Go (`panic:`/`fatal error:`), generic (`FATAL`/`PANIC`/`Exception`/`Error`), connection errors, auth errors, fallback (last non-empty line). 23 tests + 3 priority-order tests. (2026-03-21)
+- [x] **FEAT-19: One-line summarizer** — `pkg/logs/summarizer.go`. Language-aware extraction: Java (last `Caused by:`), Python (exception after last traceback header), Go (`panic:`/`fatal error:`), Go structured log (`"command failed" err="[...]"` → first flag + count), generic (`FATAL`/`PANIC`/`Exception`/`Error`), connection errors, auth errors, fallback (last non-empty line). 26 tests + 3 priority-order tests. (2026-03-21; goCommandFailed pattern added 2026-03-23)
 
 ### Phase 5: Output
-- [x] **FEAT-20: Table renderer** — `pkg/output/table.go`. lipgloss/table per category; catSpec map (icon, label, headers, rowFn); critical envs first; empty categories hidden; "✅ No issues found" per cluster; `wrapText()` at 80 chars for Pending Reason, Warning Event Message, CrashLoop Root Cause. 31 tests. (2026-03-21)
+- [x] **FEAT-20: Table renderer** — `pkg/output/table.go`. lipgloss/table per category; catSpec map (icon, label, headers, rowFn); critical envs first; empty categories hidden; "✅ No issues found" per cluster with dim kube-system hint when excluded (`kubeSystemExcluded()` helper); `wrapText()` at 80 chars for Pending Reason, Warning Event Message, CrashLoop Root Cause. 31 tests. (2026-03-21; kube-system hint added 2026-03-23)
 - [x] **FEAT-21: Color/tier theming** — `pkg/output/color.go`. critical=red, dev-named=green, standard=yellow; EnvColor/EnvEmoji/EnvHeaderStyle/SeverityStyle exported. (2026-03-21)
 - [x] **FEAT-22: JSON output** — `pkg/output/json.go`. RenderJSON writes `[]jsonFinding` with no ANSI codes. --output json flag wired in cmd/root.go. (2026-03-21)
-- [x] **FEAT-23: Summary footer** — `pkg/output/summary.go`. Per-env issue counts + "Next scan in Xm Ys" from scan interval. (2026-03-21)
+- [x] **FEAT-23: Summary footer** — `pkg/output/summary.go`. Per-env issue counts + "Next scan in Xm Ys" from scan interval. (2026-03-21; scan history display added separately via `pkg/cache/log.go` + `--history` flag, 2026-03-23)
 - [x] **Full scan wiring** — `cmd/root.go`. Custom parallel scan loop (WaitGroup + semaphore); BuildClientset errors collected non-fatally; all 11 scanners called per namespace; logs fetched for CrashLoop pods; --output json|table; --env filter; graceful "no config" message. (2026-03-21)
 
 ### Phase 6: CLI Polish
@@ -65,6 +65,14 @@ Also added:
 
 ### Phase 7: Platform-Specific
 - [x] **FEAT-30: kubelogin version detection** — `pkg/kube/client.go`: `DetectKubeloginVersion()`, `CheckKubeloginVersion()`, `parseKubeloginVersion()`, `KubeloginVersion.AtLeast()`. Advisory warning at scan start + during `klarity init` if kubelogin >= 0.1.19 detected with AKS exec credential. 17 new tests. README section added. (2026-03-21)
+
+### Session Additions (not in original tracker)
+
+- [x] **UX: single-cluster auto-select in init wizard** — `cmd/init.go`: `assignClusters(available, promptFn)` helper; if `len(available) == 1` returns immediately without calling promptFn; fallback path prints "✓ Only one cluster available — auto-selected: …". 3 new tests in `cmd/init_test.go`. (2026-03-23)
+- [x] **UX: empty selection re-prompt instead of fatal exit** — `assignClusters()` loops until `len(chosen) > 0`, printing "✗ No clusters selected — please select at least one." on each empty response; replaces old skip-and-continue-then-fatal-at-end behavior. (2026-03-23)
+- [x] **Corpus: Go structured log "command failed" err=[...] pattern** — `pkg/logs/summarizer.go`: `goCommandFailed()` finds `"command failed" err="[flag1, flag2, ...]"` lines, splits by `", "`, returns `"command failed: flag1 (and N more)"` or plain for single flag; priority slot 3b (after go panic/fatal, before generic FATAL). 3 new table tests. (2026-03-23)
+- [x] **Cache layer (`pkg/cache/cache.go`)** — `Cache{ScannedAt time.Time, Findings []diagnosis.Finding}` stored at `~/.klarity_cache` as JSON. `Load` returns `(nil, nil)` for missing, `(nil, err)` for corrupt. `Save` writes mode 0600. `Age` / `IsStale(threshold)`. `Equal` for order-independent comparison (sorts by composite key before JSON marshal). `cmd/root.go`: `gatherFindings()` extracted from `doScan`; cache shown instantly with `(cached Xm ago, scanning...)` header → background goroutine → compare → "✓ Still current" or clearScreen+re-render. Watch mode still writes cache. `--output json` bypasses cache path. 10 tests. (2026-03-23)
+- [x] **History log (`pkg/cache/log.go`)** — `LogEntry{ScannedAt, Environments map[string]int, Total}` appended as NDJSON lines to `~/.klarity.log` after every scan (manual + watch). `AppendLog` creates file if absent. `ReadLog(path, last)` returns last N entries; skips malformed lines. `FilterLog(entries, env)` keeps entries where env count > 0. `--history [N]` flag on root command (`NoOptDefVal = "10"`); `--history --env prod` filters. `showHistory()` renders formatted table. 7 tests. (2026-03-23)
 
 ### Phase 9: CLI Polish & Scanning
 - [x] **FEAT-27: Node scanner** — `pkg/kube/nodes.go` `ListUnhealthyNodes()` checks NotReady/MemoryPressure/DiskPressure/PIDPressure/NetworkUnavailable. `pkg/diagnosis/nodes.go` `NodeClassifier` with `classifyNodeCondition()`. Renders FIRST in output. 14 tests. (2026-03-22)
@@ -243,6 +251,11 @@ Other changes:
 - 2026-03-22: `ContainerErrorClassifier` no longer handles Evicted reason — EventClassifier already handles Evicted events; removing from ContainerErrorClassifier eliminates duplicate findings
 - 2026-03-22: `ListWarningEvents()` makes two API calls — first for `type=Warning`, second for `type=Normal,reason=BackOff`; results merged and deduplicated by (namespace, objectName, reason, message); BackOff events contain image names needed by `classifyImagePullGroup()`; fallback to all-Normal fetch if cluster rejects compound field selector
 - 2026-03-22: Normal/BackOff events included in results even though type=Normal — `classifyImagePullGroup()` needs the image name from `Back-off pulling image "..."` messages; all other Normal event reasons are filtered out in Go
+- 2026-03-23: `pkg/cache` imports `pkg/diagnosis` — cache stores `[]diagnosis.Finding` directly (no intermediate type); JSON serialization works because Category/Severity are string aliases and Finding has all plain fields
+- 2026-03-23: Cache bypassed for `--output json` — ANSI-free JSON path needs no cache headers; cache still written after live scan for next table-mode run
+- 2026-03-23: `Equal()` sorts findings by composite key (`Category+EnvName+ClusterCtx+Namespace+PodName+OneLiner`) before JSON marshal — guards against non-deterministic goroutine ordering
+- 2026-03-23: `--history` uses cobra `NoOptDefVal = "10"` — `--history` alone → 10, `--history 20` → 20, absent → 0 (disabled); checked before config load so no kubeconfig needed for history display
+- 2026-03-23: `assignClusters` is the testable core of the cluster-selection UX — huh form injected via `promptFn func([]string) ([]string, error)`; single-cluster fast path and re-prompt loop both tested without TTY
 
 ---
 
