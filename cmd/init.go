@@ -30,17 +30,17 @@ func init() {
 func runInit(cmd *cobra.Command, args []string) error {
 	// ── 1. Load kubeconfig ──────────────────────────────────────────────
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	fmt.Printf("Reading %s... ", loadingRules.GetLoadingPrecedence()[0])
 	kubeConfig, err := loadingRules.Load()
 	if err != nil {
 		return fmt.Errorf("reading kubeconfig: %w", err)
 	}
 
-	fmt.Printf("Reading %s...\n\n", loadingRules.GetLoadingPrecedence()[0])
-
 	contexts := make([]string, 0, len(kubeConfig.Contexts))
 	for name := range kubeConfig.Contexts {
 		contexts = append(contexts, name)
 	}
+	fmt.Printf("found %d clusters.\n", len(contexts))
 
 	if len(contexts) == 0 {
 		return fmt.Errorf("no contexts found in kubeconfig — add at least one cluster context and re-run")
@@ -54,20 +54,17 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Stable order for deterministic UX
+	// Stable order for deterministic UX.
 	sortStrings(contexts)
 
-	// ── 2. Auto-detect environments ─────────────────────────────────────
-	detected, allMatched := config.DetectEnvironments(contexts)
+	// ── 2. Auto-detect environments (3-strategy) ─────────────────────────
+	fmt.Println("Analyzing cluster names...")
+	detected, _ := config.DetectEnvironments(contexts)
 
 	defaults := config.DefaultConfig()
 	var cfg *config.Config
 
-	if allMatched {
-		cfg, err = runHappyPath(detected, defaults)
-	} else {
-		cfg, err = runFallbackPath(contexts, defaults)
-	}
+	cfg, err = runNewWizard(detected, contexts, defaults)
 	if err != nil {
 		return err
 	}
@@ -98,68 +95,238 @@ func runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runHappyPath handles the detected-environment flow.
-// For each environment, the user chooses whether to include all clusters or
-// select a subset via a multi-select.
-func runHappyPath(detected config.DetectedEnvs, defaults *config.Config) (*config.Config, error) {
-	// Show summary
-	fmt.Printf("Detected %d clusters across %d environments:\n\n", totalClusters(detected), len(detected.Order))
+// runNewWizard implements the multi-phase init wizard:
+//
+//	Phase 1 — Show proposed groupings, ask Accept/edit/cancel.
+//	Phase 2 — Handle unmatched clusters one at a time.
+//	Phase 3 — Tier confirmation (only when names are ambiguous).
+//	Phase 4 — Final summary and save confirmation.
+func runNewWizard(detected config.DetectedEnvs, allContexts []string, defaults *config.Config) (*config.Config, error) {
+	// ── Phase 1: Display proposed groupings ─────────────────────────────
+	printBar()
+	fmt.Println("Proposed groupings")
+	printBar()
+
 	for _, label := range detected.Order {
 		clusters := detected.Envs[label]
-		fmt.Printf("  %s (%d cluster", label, len(clusters))
+		tier := config.InferTier(label)
+		tierStr := "standard"
+		if tier == config.TierCritical {
+			tierStr = "critical"
+		}
+		fmt.Printf("  %-25s (%s)   %d cluster", label, tierStr, len(clusters))
 		if len(clusters) != 1 {
 			fmt.Print("s")
 		}
-		fmt.Println(")")
-		for _, ctx := range clusters {
-			fmt.Printf("    ✓ %s\n", ctx)
+		fmt.Println()
+	}
+
+	if len(detected.Unmatched) > 0 {
+		word := "cluster"
+		if len(detected.Unmatched) != 1 {
+			word = "clusters"
+		}
+		fmt.Printf("\nUnmatched (%d %s):\n", len(detected.Unmatched), word)
+		for _, ctx := range detected.Unmatched {
+			suggestion := config.BestGuessGroup(ctx)
+			if suggestion != "" {
+				fmt.Printf("  • %-35s → suggested: %s\n", ctx, suggestion)
+			} else {
+				fmt.Printf("  • %-35s → no suggestion\n", ctx)
+			}
 		}
 	}
-	fmt.Println()
+	printBar()
 
-	selected := make(map[string][]string)
+	if len(detected.Order) == 0 && len(detected.Unmatched) == 0 {
+		return nil, fmt.Errorf("no clusters to configure")
+	}
 
+	var choice string
+	sel := huh.NewSelect[string]().
+		Title("Accept these groupings?").
+		Options(
+			huh.NewOption("Yes, accept all", "yes"),
+			huh.NewOption("Edit/rename groups manually", "edit"),
+			huh.NewOption("No, cancel setup", "no"),
+		).
+		Value(&choice)
+	if err := huh.NewForm(huh.NewGroup(sel)).Run(); err != nil {
+		return nil, fmt.Errorf("prompt error: %w", err)
+	}
+
+	switch choice {
+	case "no":
+		return nil, nil
+	case "edit":
+		// Fall back to the manual naming flow.
+		return runFallbackPath(allContexts, defaults)
+	}
+
+	// Build working selected map from detected envs.
+	selected := make(map[string][]string, len(detected.Order))
+	order := make([]string, len(detected.Order))
+	copy(order, detected.Order)
 	for _, label := range detected.Order {
-		allClusters := detected.Envs[label]
+		selected[label] = detected.Envs[label]
+	}
 
-		var scanAll bool
+	// ── Phase 2: Handle unmatched clusters ──────────────────────────────
+	for _, ctx := range detected.Unmatched {
+		suggestion := config.BestGuessGroup(ctx)
+
+		title := ctx + " → no suggestion"
+		if suggestion != "" {
+			title = fmt.Sprintf("%s → suggested group: %s", ctx, suggestion)
+		}
+
+		acceptLabel := "Accept (enter name)"
+		if suggestion != "" {
+			acceptLabel = fmt.Sprintf("Accept (%s)", suggestion)
+		}
+
+		var action string
+		actionSel := huh.NewSelect[string]().
+			Title(title).
+			Options(
+				huh.NewOption(acceptLabel, "accept"),
+				huh.NewOption("Rename (enter custom group name)", "rename"),
+				huh.NewOption("Skip (exclude from config)", "skip"),
+			).
+			Value(&action)
+		if err := huh.NewForm(huh.NewGroup(actionSel)).Run(); err != nil {
+			return nil, fmt.Errorf("prompt error: %w", err)
+		}
+
+		if action == "skip" {
+			continue
+		}
+
+		groupName := suggestion
+		if action == "rename" || groupName == "" {
+			hint := strings.Join(order, ", ")
+			var nameInput string
+			prompt := huh.NewInput().
+				Title(fmt.Sprintf("Group name for %s (existing groups: %s):", ctx, hint)).
+				Value(&nameInput).
+				Validate(func(s string) error {
+					if strings.TrimSpace(s) == "" {
+						return fmt.Errorf("name cannot be empty")
+					}
+					return nil
+				})
+			if err := huh.NewForm(huh.NewGroup(prompt)).Run(); err != nil {
+				return nil, fmt.Errorf("prompt error: %w", err)
+			}
+			groupName = strings.TrimSpace(nameInput)
+		}
+
+		if _, exists := selected[groupName]; !exists {
+			order = append(order, groupName)
+		}
+		selected[groupName] = append(selected[groupName], ctx)
+	}
+
+	// ── Phase 3: Tier confirmation (only when ambiguous) ─────────────────
+	// Show only if at least one env name carries no recognisable env keyword
+	// (e.g. a custom group name like "intel-team").
+	ambiguous := false
+	for _, label := range order {
+		if len(selected[label]) > 0 && !config.HasEnvKeyword(label) {
+			ambiguous = true
+			break
+		}
+	}
+
+	if ambiguous {
+		fmt.Println("\nTier assignments (critical = prod environments, shown first):")
+		for _, label := range order {
+			if len(selected[label]) == 0 {
+				continue
+			}
+			tier := config.InferTier(label)
+			tierStr := "standard"
+			if tier == config.TierCritical {
+				tierStr = "critical ✓"
+			} else {
+				tierStr = "standard ✓"
+			}
+			fmt.Printf("  %-25s → %s\n", label, tierStr)
+		}
+
+		var changeTiers bool
 		confirm := huh.NewConfirm().
-			Title(fmt.Sprintf("Scan all %d %s cluster(s)?", len(allClusters), label)).
-			Value(&scanAll)
-
+			Title("Change any tier assignments?").
+			Value(&changeTiers)
 		if err := huh.NewForm(huh.NewGroup(confirm)).Run(); err != nil {
 			return nil, fmt.Errorf("prompt error: %w", err)
 		}
 
-		if scanAll {
-			selected[label] = allClusters
-			continue
+		if changeTiers {
+			tierOverrides := make(map[string]string, len(order))
+			for _, label := range order {
+				if len(selected[label]) == 0 {
+					continue
+				}
+				var newTier string
+				tierSel := huh.NewSelect[string]().
+					Title(fmt.Sprintf("Tier for %s:", label)).
+					Options(
+						huh.NewOption("standard", config.TierStandard),
+						huh.NewOption("critical (prod environments)", config.TierCritical),
+					).
+					Value(&newTier)
+				if err := huh.NewForm(huh.NewGroup(tierSel)).Run(); err != nil {
+					return nil, fmt.Errorf("prompt error: %w", err)
+				}
+				tierOverrides[label] = newTier
+			}
+			return config.BuildDetectedConfigWithTiers(selected, order, tierOverrides, defaults), nil
 		}
-
-		// Multi-select subset
-		opts := make([]huh.Option[string], len(allClusters))
-		for i, ctx := range allClusters {
-			opts[i] = huh.NewOption(ctx, ctx)
-		}
-		var chosen []string
-		ms := huh.NewMultiSelect[string]().
-			Title(fmt.Sprintf("Select %s clusters to scan", label)).
-			Options(opts...).
-			Value(&chosen)
-
-		if err := huh.NewForm(huh.NewGroup(ms)).Run(); err != nil {
-			return nil, fmt.Errorf("prompt error: %w", err)
-		}
-		selected[label] = chosen
 	}
 
-	fmt.Printf("\nNamespaces: scanning all namespaces (excluding %v)\n", defaults.Settings.DefaultNsExclude)
-	fmt.Println("To customize, edit ~/.klarityconfig.yaml after setup.")
+	// ── Phase 4: Final summary and save confirmation ─────────────────────
+	fmt.Println()
+	printBar()
+	fmt.Println("Config summary")
+	printBar()
+	for _, label := range order {
+		clusters := selected[label]
+		if len(clusters) == 0 {
+			continue
+		}
+		tier := config.InferTier(label)
+		tierStr := "standard"
+		if tier == config.TierCritical {
+			tierStr = "critical"
+		}
+		fmt.Printf("  %-25s (%s)   %d cluster", label, tierStr, len(clusters))
+		if len(clusters) != 1 {
+			fmt.Print("s")
+		}
+		fmt.Println()
+	}
+	fmt.Printf("Namespaces: all (excluding %s)\n", strings.Join(defaults.Settings.DefaultNsExclude, ", "))
+	printBar()
 
-	return config.BuildDetectedConfig(selected, detected.Order, defaults), nil
+	cfgPath, _ := config.ConfigPath()
+	var confirmSave bool
+	savePrompt := huh.NewConfirm().
+		Title(fmt.Sprintf("Save config to %s?", cfgPath)).
+		Value(&confirmSave)
+	if err := huh.NewForm(huh.NewGroup(savePrompt)).Run(); err != nil {
+		return nil, fmt.Errorf("prompt error: %w", err)
+	}
+
+	if !confirmSave {
+		return nil, nil
+	}
+
+	return config.BuildDetectedConfig(selected, order, defaults), nil
 }
 
-// runFallbackPath handles the manual env-naming flow when auto-detection fails.
+// runFallbackPath handles the manual env-naming flow when the user selects
+// "Edit/rename groups manually" from the wizard, or as a legacy fallback.
 func runFallbackPath(allContexts []string, defaults *config.Config) (*config.Config, error) {
 	fmt.Printf("Found %d cluster", len(allContexts))
 	if len(allContexts) != 1 {
@@ -169,7 +336,7 @@ func runFallbackPath(allContexts []string, defaults *config.Config) (*config.Con
 	for _, ctx := range allContexts {
 		fmt.Printf("  • %s\n", ctx)
 	}
-	fmt.Println("\nCould not detect environments from cluster names.")
+	fmt.Println("\nManual environment assignment mode.")
 
 	// ── Ask how many environments ────────────────────────────────────────
 	var numEnvStr string
@@ -337,14 +504,6 @@ func buildEnvironmentsFromInput(names []string, assignments map[string][]string)
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-func totalClusters(d config.DetectedEnvs) int {
-	n := 0
-	for _, v := range d.Envs {
-		n += len(v)
-	}
-	return n
-}
-
 // sortStrings is a simple insertion sort — avoids importing sort just for this.
 func sortStrings(ss []string) {
 	for i := 1; i < len(ss); i++ {
@@ -352,6 +511,11 @@ func sortStrings(ss []string) {
 			ss[j], ss[j-1] = ss[j-1], ss[j]
 		}
 	}
+}
+
+// printBar prints a visual separator line.
+func printBar() {
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 }
 
 // assignClusters returns the cluster selection for an environment.

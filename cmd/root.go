@@ -42,7 +42,7 @@ var (
 // ── Root command ──────────────────────────────────────────────────────────────
 
 // Version is the CLI version string, set here for --version flag.
-const Version = "1.0.3"
+const Version = "1.0.5"
 
 var rootCmd = &cobra.Command{
 	Use:     "klarity",
@@ -201,7 +201,8 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	// ── Single-shot mode: check cache first ───────────────────────────────────
-	if flagOutput != "json" {
+	filteredScan := flagEnv != "" || flagContext != "" || flagNamespace != ""
+	if flagOutput != "json" && !filteredScan {
 		cachedData, loadErr := cache.Load(cachePath)
 		if loadErr != nil {
 			// Corrupted cache — remove and fall through to live scan.
@@ -251,7 +252,9 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	// No cache (or JSON mode): scan live.
-	return doScan(context.Background(), cfg, classifiers, categorySet, nsInclude, nsExclude, interval, cachePath, logPath)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	return doScan(ctx, cfg, classifiers, categorySet, nsInclude, nsExclude, interval, cachePath, logPath)
 }
 
 // gatherFindings runs the parallel scan across all clusters and returns the

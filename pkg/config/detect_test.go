@@ -320,6 +320,248 @@ func TestBuildManualConfig_NoClustersSelected(t *testing.T) {
 }
 
 // ──────────────────────────────────────────────
+// AKS pattern matching
+// ──────────────────────────────────────────────
+
+var matchAKSTests = []struct {
+	context string
+	want    string
+}{
+	{"aks-intel-dev-cus-app", "dev-intel"},
+	{"aks-intel-prod-eus-web", "prod-intel"},
+	{"aks-intel-prod-cus-api", "prod-intel"},
+	{"aks-ravn-staging-wus-svc", "staging-ravn"},
+	{"aks-myorg-production-eus-01", "prod-myorg"},
+	{"aks-myorg-development-cus-02", "dev-myorg"},
+	// AKS prefix required
+	{"not-aks-intel-dev-cus", ""},
+	// Level must be a known keyword
+	{"aks-intel-unknown-cus-app", ""},
+	// Case insensitive
+	{"AKS-INTEL-DEV-CUS-APP", "dev-intel"},
+}
+
+func TestMatchAKSPattern(t *testing.T) {
+	for _, tc := range matchAKSTests {
+		t.Run(tc.context, func(t *testing.T) {
+			got := matchAKSPattern(tc.context)
+			if got != tc.want {
+				t.Errorf("matchAKSPattern(%q) = %q, want %q", tc.context, got, tc.want)
+			}
+		})
+	}
+}
+
+// ──────────────────────────────────────────────
+// EKS/AWS pattern matching
+// ──────────────────────────────────────────────
+
+var matchEKSTests = []struct {
+	context string
+	want    string
+}{
+	{"myapp-prod-web-01", "prod-myapp"},
+	{"myapp-production-web-01", "prod-myapp"},
+	{"project-staging-api", "staging-project"},
+	{"project-stg-api", "staging-project"},
+	{"project-dev-worker", "dev-project"},
+	{"project-development-worker", "dev-project"},
+	{"project-qa-cluster", "qa-project"},
+	{"project-uat-cluster", "uat-project"},
+	{"project-test-cluster", "test-project"},
+	{"project-testing-cluster", "test-project"},
+	{"project-sandbox-cluster", "sandbox-project"},
+	// Level must be recognised keyword
+	{"project-unknown-cluster", ""},
+	// Needs trailing dash after level
+	{"myapp-prod", ""},
+	// Case insensitive
+	{"MyApp-Prod-Web-01", "prod-myapp"},
+}
+
+func TestMatchEKSPattern(t *testing.T) {
+	for _, tc := range matchEKSTests {
+		t.Run(tc.context, func(t *testing.T) {
+			got := matchEKSPattern(tc.context)
+			if got != tc.want {
+				t.Errorf("matchEKSPattern(%q) = %q, want %q", tc.context, got, tc.want)
+			}
+		})
+	}
+}
+
+// ──────────────────────────────────────────────
+// DetectEnvironments with AKS/EKS patterns
+// ──────────────────────────────────────────────
+
+func TestDetectEnvironments_AKSPattern(t *testing.T) {
+	contexts := []string{
+		"aks-intel-prod-cus-web",
+		"aks-intel-prod-eus-api",
+		"aks-intel-dev-cus-app",
+		"aks-ravn-dev-wus-svc",
+	}
+	result, ok := DetectEnvironments(contexts)
+	if !ok {
+		t.Fatal("expected all AKS contexts to match, got ok=false")
+	}
+	assertContextsInEnv(t, result, "prod-intel", []string{
+		"aks-intel-prod-cus-web",
+		"aks-intel-prod-eus-api",
+	})
+	assertContextsInEnv(t, result, "dev-intel", []string{"aks-intel-dev-cus-app"})
+	assertContextsInEnv(t, result, "dev-ravn", []string{"aks-ravn-dev-wus-svc"})
+	if len(result.Unmatched) != 0 {
+		t.Errorf("expected no unmatched, got: %v", result.Unmatched)
+	}
+}
+
+func TestDetectEnvironments_EKSPattern(t *testing.T) {
+	contexts := []string{
+		"myapp-prod-web-01",
+		"myapp-prod-api-02",
+		"myapp-dev-worker",
+	}
+	result, ok := DetectEnvironments(contexts)
+	if !ok {
+		t.Fatal("expected all EKS contexts to match, got ok=false")
+	}
+	assertContextsInEnv(t, result, "prod-myapp", []string{
+		"myapp-prod-web-01",
+		"myapp-prod-api-02",
+	})
+	assertContextsInEnv(t, result, "dev-myapp", []string{"myapp-dev-worker"})
+}
+
+func TestDetectEnvironments_MixedStrategies(t *testing.T) {
+	// AKS, EKS, and generic keyword clusters in one kubeconfig.
+	contexts := []string{
+		"aks-intel-prod-cus-web", // AKS → prod-intel
+		"myapp-dev-worker",       // EKS → dev-myapp
+		"prod-us-east-1",         // generic → prod
+	}
+	result, ok := DetectEnvironments(contexts)
+	if !ok {
+		t.Fatal("expected all contexts to match, got ok=false")
+	}
+	if len(result.Unmatched) != 0 {
+		t.Errorf("expected no unmatched, got: %v", result.Unmatched)
+	}
+	if _, ok := result.Envs["prod-intel"]; !ok {
+		t.Error("expected prod-intel group from AKS pattern")
+	}
+	if _, ok := result.Envs["dev-myapp"]; !ok {
+		t.Error("expected dev-myapp group from EKS pattern")
+	}
+	if _, ok := result.Envs["prod"]; !ok {
+		t.Error("expected prod group from generic pattern")
+	}
+}
+
+func TestDetectEnvironments_UnmatchedGoesToUnmatched(t *testing.T) {
+	contexts := []string{
+		"aks-intel-prod-cus-web",
+		"legacy-cluster", // no keyword → unmatched
+		"tools-central",  // no keyword → unmatched
+	}
+	result, _ := DetectEnvironments(contexts)
+	if len(result.Unmatched) != 2 {
+		t.Errorf("expected 2 unmatched, got %d: %v", len(result.Unmatched), result.Unmatched)
+	}
+}
+
+// ──────────────────────────────────────────────
+// BestGuessGroup
+// ──────────────────────────────────────────────
+
+var bestGuessGroupTests = []struct {
+	context string
+	want    string
+}{
+	{"ravn-dev-cus", "dev-ravn"},
+	{"legacy-cluster-01", ""},       // no env keyword → no suggestion
+	{"my-dev-cluster", "dev-cluster"}, // "my" is 2 chars → skipped; "cluster" is first non-skip org token
+	{"intel-prod-eus", "prod-intel"},
+	{"staging-myorg-01", "staging-myorg"},
+	{"tooling-central", ""},         // no keyword
+	{"qa-team-alpha", "qa-team"},
+	{"prod", "prod"},                // keyword only, no org token
+	{"dev-01", "dev"},               // only digits after keyword
+}
+
+func TestBestGuessGroup(t *testing.T) {
+	for _, tc := range bestGuessGroupTests {
+		t.Run(tc.context, func(t *testing.T) {
+			got := BestGuessGroup(tc.context)
+			if got != tc.want {
+				t.Errorf("BestGuessGroup(%q) = %q, want %q", tc.context, got, tc.want)
+			}
+		})
+	}
+}
+
+// ──────────────────────────────────────────────
+// tierForLabel — contains-word behaviour
+// ──────────────────────────────────────────────
+
+var tierForLabelTests = []struct {
+	label    string
+	wantTier string
+}{
+	{"prod", TierCritical},
+	{"production", TierCritical},
+	{"prod-intel", TierCritical},
+	{"prod-myapp", TierCritical},
+	{"production-east", TierCritical},
+	{"dev", TierStandard},
+	{"dev-ravn", TierStandard},
+	{"dev-intel", TierStandard},
+	{"staging", TierStandard},
+	{"staging-intel", TierStandard},
+	{"qa", TierStandard},
+	{"tooling", TierStandard},
+	// "reproduced" should NOT be critical despite containing "prod" substring
+	{"reproduced-cluster", TierStandard},
+}
+
+func TestTierForLabel(t *testing.T) {
+	for _, tc := range tierForLabelTests {
+		t.Run(tc.label, func(t *testing.T) {
+			got := tierForLabel(tc.label)
+			if got != tc.wantTier {
+				t.Errorf("tierForLabel(%q) = %q, want %q", tc.label, got, tc.wantTier)
+			}
+		})
+	}
+}
+
+// ──────────────────────────────────────────────
+// HasEnvKeyword
+// ──────────────────────────────────────────────
+
+func TestHasEnvKeyword(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		{"prod-intel", true},
+		{"dev-ravn", true},
+		{"staging-myorg", true},
+		{"tooling", false},
+		{"legacy-cluster", false},
+		{"intel-team", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := HasEnvKeyword(tc.name)
+			if got != tc.want {
+				t.Errorf("HasEnvKeyword(%q) = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
+// ──────────────────────────────────────────────
 // helpers
 // ──────────────────────────────────────────────
 
