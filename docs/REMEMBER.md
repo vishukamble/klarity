@@ -4,9 +4,9 @@
 
 ## Current State
 
-**Last updated:** 2026-03-23
-**Last session focus:** Bug fixes, classifier corpus, kube-system hint, instant cache + history features
-**Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass, 260 test cases)
+**Last updated:** 2026-03-24
+**Last session focus:** Multi-strategy cluster detection, parallel namespace scanning, default_env
+**Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass, 271 test cases)
 
 ## Project Initialization
 
@@ -95,6 +95,15 @@ Also added:
 
 - `website/index.html` + `website/style.css` — static marketing site, to be hosted on S3 + CloudFront. Added 2026-03-21.
 - Not part of the Go build; keep it out of `go build` / `go test` scope.
+
+## Session Additions (2026-03-24)
+
+- [x] **Multi-strategy cluster detection** — `pkg/config/detect.go`: AKS pattern (`aks-{org}-{level}-*` → `{level}-{org}`), EKS pattern (`{project}-{level}-*` → `{level}-{project}`), generic keyword fallback. `normalizeLevel()`, `matchAKSPattern()`, `matchEKSPattern()`, `BestGuessGroup()`, `HasEnvKeyword()`, `BuildDetectedConfigWithTiers()`. `tierForLabel` updated to use `containsWord` so `prod-intel` → critical. 38 new tests. (2026-03-24)
+- [x] **New init wizard** — `cmd/init.go`: 4-phase wizard (show groupings, handle unmatched, tier confirm, final save). Replaces separate happy/fallback paths for normal flow; `runFallbackPath` still reachable via "Edit" option. `promptDefaultEnv()` in Phase 5 for large configs. (2026-03-24)
+- [x] **Parallel namespace scanning** — `cmd/root.go` `scanCluster()`: WaitGroup+semaphore fan-out over namespace loop, concurrency controlled by `cfg.Settings.ParallelNamespaces` (default 10). `pkg/config/config.go`: `ParallelNamespaces int` field added. 37 namespaces at concurrency 10 → ~15s vs ~76s sequential. (2026-03-24)
+- [x] **FEAT-35: Default environment** — `pkg/config/config.go`: `Settings.DefaultEnv string` field. `cmd/init.go`: `promptDefaultEnv()` after save when >10 clusters total. `cmd/root.go`: applies `default_env` when no `--env`/`--context` flags; shows framed banner when default active; prints large-cluster warning with `suggestDefaultEnv()` tip when no default and >10 clusters. 3 new tests (`TestSuggestDefaultEnv`). (2026-03-24)
+- [x] **root.go syntax fix** — Removed incomplete duplicate cache block that was breaking compilation. (2026-03-24)
+- [x] **Version bump** — `cmd/root.go`: version updated to `1.0.5`. (2026-03-24)
 
 ## Known Issues / Blockers
 
@@ -256,6 +265,14 @@ Other changes:
 - 2026-03-23: `Equal()` sorts findings by composite key (`Category+EnvName+ClusterCtx+Namespace+PodName+OneLiner`) before JSON marshal — guards against non-deterministic goroutine ordering
 - 2026-03-23: `--history` uses cobra `NoOptDefVal = "10"` — `--history` alone → 10, `--history 20` → 20, absent → 0 (disabled); checked before config load so no kubeconfig needed for history display
 - 2026-03-23: `assignClusters` is the testable core of the cluster-selection UX — huh form injected via `promptFn func([]string) ([]string, error)`; single-cluster fast path and re-prompt loop both tested without TTY
+- 2026-03-24: AKS/EKS patterns are tried before generic keyword fallback — first match wins per cluster; unrecognised level token in AKS/EKS falls through to generic
+- 2026-03-24: `BestGuessGroup` skips tokens with `len ≤ 2` as too short to be meaningful org names; "my" in "my-dev-cluster" is skipped, "cluster" becomes the org token
+- 2026-03-24: `tierForLabel` now uses `containsWord` — "prod-intel" → critical, "reproduced-cluster" → standard (substring match prevented)
+- 2026-03-24: `parallel_namespaces: 0` in old configs coerced to 10 at runtime — not a validation error; new configs from `klarity init` always have 10
+- 2026-03-24: `Settings.DefaultEnv` is not validated on load (optional field); error is surfaced at scan time only if the named env is absent from config
+- 2026-03-24: `promptDefaultEnv` uses `totalConfigClusters > 10`, not `len(Environments) > 10` — 11 clusters across 2 envs triggers it; 10 clusters across 10 envs does not
+- 2026-03-24: `showDefaultEnvBanner` / large-cluster warning only fires when both `--env` and `--context` are absent — explicit flags always bypass the default_env logic entirely
+- 2026-03-24: Cache is still written after a live scan even when `default_env` is active — the cache reflects whatever subset was actually scanned
 
 ---
 

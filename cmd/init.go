@@ -89,10 +89,72 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("saving config: %w", err)
 	}
 
+	// ── 5. Offer a default environment for large configs ──────────────
+	if totalConfigClusters(cfg) > 10 {
+		if updated, perr := promptDefaultEnv(cfg); perr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "⚠  Could not set default environment: %v\n", perr)
+		} else if updated {
+			if serr := config.Save(cfg, cfgPath); serr != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "⚠  Could not save default_env: %v\n", serr)
+			}
+		}
+	}
+
 	fmt.Printf("\n✅ Config saved to %s\n", cfgPath)
 	fmt.Println("Run `klarity` to scan your environment.")
 	fmt.Println("Tip: use --namespace or --exclude-ns to filter scans at runtime")
 	return nil
+}
+
+// promptDefaultEnv shows a large-config warning and lets the user pick a
+// default environment to scan. Returns true if cfg.Settings.DefaultEnv was
+// set (caller must re-save). Non-fatal; errors are printed by the caller.
+func promptDefaultEnv(cfg *config.Config) (updated bool, err error) {
+	total := totalConfigClusters(cfg)
+	fmt.Printf("\nYou have %d clusters configured. Running a full scan will take several minutes.\n\n", total)
+
+	// Build select options: one per environment + a "no default" option.
+	const noDefault = ""
+	opts := make([]huh.Option[string], 0, len(cfg.Environments)+1)
+	for _, env := range cfg.Environments {
+		tierStr := "standard"
+		if env.Tier == config.TierCritical {
+			tierStr = "critical"
+		}
+		label := fmt.Sprintf("%-25s (%s, %d cluster", env.Name, tierStr, len(env.Clusters))
+		if len(env.Clusters) != 1 {
+			label += "s"
+		}
+		label += ")"
+		opts = append(opts, huh.NewOption(label, env.Name))
+	}
+	opts = append(opts, huh.NewOption("No default — scan everything", noDefault))
+
+	var chosen string
+	sel := huh.NewSelect[string]().
+		Title("Would you like to set a default environment?\n  (klarity will scan this by default, use --env to scan others)").
+		Options(opts...).
+		Value(&chosen)
+	if runErr := huh.NewForm(huh.NewGroup(sel)).Run(); runErr != nil {
+		return false, fmt.Errorf("prompt error: %w", runErr)
+	}
+
+	if chosen == noDefault {
+		return false, nil
+	}
+
+	cfg.Settings.DefaultEnv = chosen
+	fmt.Printf("Default environment set to %q.\n", chosen)
+	return true, nil
+}
+
+// totalConfigClusters returns the total number of clusters across all environments.
+func totalConfigClusters(cfg *config.Config) int {
+	n := 0
+	for _, e := range cfg.Environments {
+		n += len(e.Clusters)
+	}
+	return n
 }
 
 // runNewWizard implements the multi-phase init wizard:

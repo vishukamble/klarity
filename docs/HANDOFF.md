@@ -4,7 +4,15 @@
 
 ## What To Do Next
 
-Implement Phase 2 scanners in this order. Each scanner lives in `pkg/kube/`, takes `(ctx context.Context, cs kubernetes.Interface, namespace string)`, returns a slice of issue structs, and must have table tests using `k8s.io/client-go/kubernetes/fake`.
+All core features are implemented. Focus areas for the next session:
+
+### Hardening / polish
+
+- **`klarity uninstall`** — `cmd/uninstall.go` exists (staged in git) but needs review; removes `~/.klarityconfig.yaml`, `~/.klarity_cache`, `~/.klarity.log`
+- **`config show` — display `default_env` when set** — `cmd/config.go` `config show` should surface `settings.default_env` when present
+- **Integration test for default_env** — add a `cmd/root_test.go` test that constructs a >10-cluster config with `DefaultEnv` set and verifies `filterByEnv` is applied correctly (without TTY)
+
+### Previously queued (still relevant)
 
 ### 1. FEAT-04: Pod scanner — `pkg/kube/pods.go`
 
@@ -51,6 +59,8 @@ Add table tests for every new classifier. Do not skip validation.
 klarity (non-watch, table mode)
   → --history N  →  showHistory() reads ~/.klarity.log, exits
   → load ~/.klarityconfig.yaml
+  → apply default_env if set (showDefaultEnvBanner + filterByEnv)
+  → warn if >10 clusters and no default_env
   → pkg/cache.Load(~/.klarity_cache)
       hit  → RenderReport(cached findings) + "(cached Xm ago, scanning...)"
            → gatherFindings() in background goroutine
@@ -68,10 +78,13 @@ gatherFindings()
   → parallel goroutines per env×cluster (semaphore = parallel_clusters)
     → BuildClientset(context) — errors collected non-fatally
     → ResolveNamespaces(filter, cfg.Settings.DefaultNsExclude) → []string
-    → for each namespace: ListUnhealthyPods/Deployments/HPAs/Services/Events/
-                          Quotas/PVCs/DaemonSets/StatefulSets/Jobs/CronJobs/Nodes
-    → FetchLogs for CrashLoop pods → Summarize → PodIssue.LogSummary
-    → ListPVCNames per namespace → AllPVCNames map
+    → parallel goroutines per namespace (semaphore = parallel_namespaces, default 10)
+      → for each ns: ListUnhealthyPods/Deployments/HPAs/Services/Events/
+                     Quotas/PVCs/DaemonSets/StatefulSets/Jobs/CronJobs
+      → FetchLogs for CrashLoop pods → Summarize → PodIssue.LogSummary
+      → ListPVCNames → AllPVCNames[ns]
+      → merge under nsMu mutex into shared ScanResults
+    → ListUnhealthyNodes (cluster-wide, outside namespace loop)
     → ScanResults{EnvName, ClusterCtx, all scanner outputs, AllPVCNames}
     → RunAll(results, classifiers) → []Finding
 ```
@@ -85,6 +98,21 @@ gatherFindings()
 - CLAUDE.md: classifiers return data, output layer is only formatter; never mutate K8s resources
 
 ## Previous Session Summary
+
+**2026-03-24 — Session 31: Multi-strategy detection, parallel namespaces, default_env**
+
+4 features implemented:
+
+| Item | Files | Summary |
+|---|---|---|
+| Multi-strategy cluster detection | `pkg/config/detect.go`, `detect_test.go` | AKS/EKS/generic patterns; `BestGuessGroup`; `HasEnvKeyword`; `tierForLabel` word-boundary; 38 new tests |
+| New init wizard (4-phase) | `cmd/init.go`, `init_test.go` | Phase 1 groupings display → Phase 2 unmatched handling → Phase 3 tier confirm → Phase 4 save; `promptDefaultEnv` Phase 5 for >10 clusters |
+| Parallel namespace scanning | `cmd/root.go`, `pkg/config/config.go` | WaitGroup+semaphore per-namespace; `parallel_namespaces: 10` setting; old configs coerced to 10 |
+| FEAT-35: default_env | `pkg/config/config.go`, `cmd/root.go`, `cmd/root_test.go` | `Settings.DefaultEnv`; banner when active; large-cluster warning with suggestion when no default |
+
+Also: fixed root.go syntax error (incomplete duplicate cache block); version bumped to 1.0.5.
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (272 tests)
 
 **2026-03-23 — Session 30: Docs update — REMEMBER/HANDOFF aligned with session 29 work**
 

@@ -42,7 +42,7 @@ var (
 // ── Root command ──────────────────────────────────────────────────────────────
 
 // Version is the CLI version string, set here for --version flag.
-const Version = "1.0.5"
+const Version = "1.0.6"
 
 var rootCmd = &cobra.Command{
 	Use:     "klarity",
@@ -118,6 +118,23 @@ func runScan(cmd *cobra.Command, args []string) error {
 	if warning := kube.CheckKubeloginVersion(); warning != "" {
 		fmt.Fprintln(os.Stderr, warning)
 		fmt.Fprintln(os.Stderr)
+	}
+
+	// Apply default_env when no explicit scope flags are set.
+	noScopeFlags := flagEnv == "" && flagContext == ""
+	if noScopeFlags && cfg.Settings.DefaultEnv != "" {
+		showDefaultEnvBanner(cfg.Settings.DefaultEnv)
+		cfg = filterByEnv(cfg, cfg.Settings.DefaultEnv)
+		if len(cfg.Environments) == 0 {
+			return fmt.Errorf("default_env %q not found in config — update ~/.klarityconfig.yaml or re-run klarity init", cfg.Settings.DefaultEnv)
+		}
+	} else if noScopeFlags && countConfigClusters(cfg) > 10 {
+		n := countConfigClusters(cfg)
+		fmt.Fprintf(os.Stderr, "⚠  Scanning %d clusters — this may take several minutes.\n", n)
+		if suggestion := suggestDefaultEnv(cfg); suggestion != "" {
+			fmt.Fprintf(os.Stderr, "   Tip: set a default environment in ~/.klarityconfig.yaml (default_env: %s)\n", suggestion)
+		}
+		fmt.Fprintf(os.Stderr, "   or run klarity --env <name> to scan a specific environment.\n\n")
 	}
 
 	// Apply --env filter (prune config in place before scanning).
@@ -438,100 +455,157 @@ func scanCluster(
 		results.Nodes = nodeIssues
 	}
 
+	// Parallelize the namespace loop. Each namespace gets its own goroutine;
+	// all resource types within a namespace are still scanned sequentially.
+	nsLimit := cfg.Settings.ParallelNamespaces
+	if nsLimit < 1 {
+		nsLimit = 10 // default for configs that pre-date this field
+	}
+	nsSem := make(chan struct{}, nsLimit)
+	var nsWg sync.WaitGroup
+	var nsMu sync.Mutex
+
 	for _, ns := range namespaces {
-		pods, err := kube.ListUnhealthyPods(ctx, cs, ns)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s pods/%s: %v", prefix, ns, err))
-		} else {
-			for i := range pods {
-				if pods[i].Reason == "CrashLoopBackOff" && cfg.Settings.LogTailLines > 0 {
-					raw, lerr := logs.FetchLogs(ctx, cs, ns, pods[i].PodName, pods[i].ContainerName,
-						int64(cfg.Settings.LogTailLines), true)
-					if lerr == nil && raw != "" {
-						pods[i].LogSummary = logs.Summarize(raw)
+		ns := ns
+		nsWg.Add(1)
+		go func() {
+			defer nsWg.Done()
+			select {
+			case nsSem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-nsSem }()
+
+			var localErrs []string
+
+			// pods + log fetch for CrashLoopBackOff
+			var localPods []kube.PodIssue
+			pods, err := kube.ListUnhealthyPods(ctx, cs, ns)
+			if err != nil {
+				localErrs = append(localErrs, fmt.Sprintf("%s pods/%s: %v", prefix, ns, err))
+			} else {
+				for i := range pods {
+					if pods[i].Reason == "CrashLoopBackOff" && cfg.Settings.LogTailLines > 0 {
+						raw, lerr := logs.FetchLogs(ctx, cs, ns, pods[i].PodName, pods[i].ContainerName,
+							int64(cfg.Settings.LogTailLines), true)
+						if lerr == nil && raw != "" {
+							pods[i].LogSummary = logs.Summarize(raw)
+						}
 					}
 				}
+				localPods = pods
 			}
-			results.Pods = append(results.Pods, pods...)
-		}
 
-		deployments, err := kube.ListUnhealthyDeployments(ctx, cs, ns)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s deployments/%s: %v", prefix, ns, err))
-		} else {
-			results.Deployments = append(results.Deployments, deployments...)
-		}
+			var localDeployments []kube.DeploymentIssue
+			deployments, err := kube.ListUnhealthyDeployments(ctx, cs, ns)
+			if err != nil {
+				localErrs = append(localErrs, fmt.Sprintf("%s deployments/%s: %v", prefix, ns, err))
+			} else {
+				localDeployments = deployments
+			}
 
-		hpas, err := kube.ListUnhealthyHPAs(ctx, cs, ns)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s hpas/%s: %v", prefix, ns, err))
-		} else {
-			results.HPAs = append(results.HPAs, hpas...)
-		}
+			var localHPAs []kube.HPAIssue
+			hpas, err := kube.ListUnhealthyHPAs(ctx, cs, ns)
+			if err != nil {
+				localErrs = append(localErrs, fmt.Sprintf("%s hpas/%s: %v", prefix, ns, err))
+			} else {
+				localHPAs = hpas
+			}
 
-		services, err := kube.ListServicesWithNoEndpoints(ctx, cs, ns)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s services/%s: %v", prefix, ns, err))
-		} else {
-			results.Services = append(results.Services, services...)
-		}
+			var localServices []kube.ServiceIssue
+			services, err := kube.ListServicesWithNoEndpoints(ctx, cs, ns)
+			if err != nil {
+				localErrs = append(localErrs, fmt.Sprintf("%s services/%s: %v", prefix, ns, err))
+			} else {
+				localServices = services
+			}
 
-		events, err := kube.ListWarningEvents(ctx, cs, ns, 15*time.Minute)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s events/%s: %v", prefix, ns, err))
-		} else {
-			results.Events = append(results.Events, events...)
-		}
+			var localEvents []kube.EventIssue
+			events, err := kube.ListWarningEvents(ctx, cs, ns, 15*time.Minute)
+			if err != nil {
+				localErrs = append(localErrs, fmt.Sprintf("%s events/%s: %v", prefix, ns, err))
+			} else {
+				localEvents = events
+			}
 
-		quotas, err := kube.ListQuotaIssues(ctx, cs, ns)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s quotas/%s: %v", prefix, ns, err))
-		} else {
-			results.Quotas = append(results.Quotas, quotas...)
-		}
+			var localQuotas []kube.QuotaIssue
+			quotas, err := kube.ListQuotaIssues(ctx, cs, ns)
+			if err != nil {
+				localErrs = append(localErrs, fmt.Sprintf("%s quotas/%s: %v", prefix, ns, err))
+			} else {
+				localQuotas = quotas
+			}
 
-		pvcs, err := kube.ListPendingPVCs(ctx, cs, ns)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s pvcs/%s: %v", prefix, ns, err))
-		} else {
-			results.PVCs = append(results.PVCs, pvcs...)
-		}
+			var localPVCs []kube.PVCIssue
+			pvcs, err := kube.ListPendingPVCs(ctx, cs, ns)
+			if err != nil {
+				localErrs = append(localErrs, fmt.Sprintf("%s pvcs/%s: %v", prefix, ns, err))
+			} else {
+				localPVCs = pvcs
+			}
 
-		pvcNames, err := kube.ListPVCNames(ctx, cs, ns)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s pvc-names/%s: %v", prefix, ns, err))
-		} else {
-			results.AllPVCNames[ns] = pvcNames
-		}
+			var localPVCNames []string
+			pvcNames, err := kube.ListPVCNames(ctx, cs, ns)
+			if err != nil {
+				localErrs = append(localErrs, fmt.Sprintf("%s pvc-names/%s: %v", prefix, ns, err))
+			} else {
+				localPVCNames = pvcNames
+			}
 
-		daemonsets, err := kube.ListUnhealthyDaemonSets(ctx, cs, ns)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s daemonsets/%s: %v", prefix, ns, err))
-		} else {
-			results.DaemonSets = append(results.DaemonSets, daemonsets...)
-		}
+			var localDaemonSets []kube.DaemonSetIssue
+			daemonsets, err := kube.ListUnhealthyDaemonSets(ctx, cs, ns)
+			if err != nil {
+				localErrs = append(localErrs, fmt.Sprintf("%s daemonsets/%s: %v", prefix, ns, err))
+			} else {
+				localDaemonSets = daemonsets
+			}
 
-		statefulsets, err := kube.ListUnhealthyStatefulSets(ctx, cs, ns)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s statefulsets/%s: %v", prefix, ns, err))
-		} else {
-			results.StatefulSets = append(results.StatefulSets, statefulsets...)
-		}
+			var localStatefulSets []kube.StatefulSetIssue
+			statefulsets, err := kube.ListUnhealthyStatefulSets(ctx, cs, ns)
+			if err != nil {
+				localErrs = append(localErrs, fmt.Sprintf("%s statefulsets/%s: %v", prefix, ns, err))
+			} else {
+				localStatefulSets = statefulsets
+			}
 
-		jobs, err := kube.ListFailedJobs(ctx, cs, ns, cfg.Settings.ExcludeCompletedJobs)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s jobs/%s: %v", prefix, ns, err))
-		} else {
-			results.Jobs = append(results.Jobs, jobs...)
-		}
+			var localJobs []kube.JobIssue
+			jobs, err := kube.ListFailedJobs(ctx, cs, ns, cfg.Settings.ExcludeCompletedJobs)
+			if err != nil {
+				localErrs = append(localErrs, fmt.Sprintf("%s jobs/%s: %v", prefix, ns, err))
+			} else {
+				localJobs = jobs
+			}
 
-		cronJobs, err := kube.ListSuspendedCronJobs(ctx, cs, ns)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s cronjobs/%s: %v", prefix, ns, err))
-		} else {
-			results.CronJobs = append(results.CronJobs, cronJobs...)
-		}
+			var localCronJobs []kube.CronJobIssue
+			cronJobs, err := kube.ListSuspendedCronJobs(ctx, cs, ns)
+			if err != nil {
+				localErrs = append(localErrs, fmt.Sprintf("%s cronjobs/%s: %v", prefix, ns, err))
+			} else {
+				localCronJobs = cronJobs
+			}
+
+			// Merge into shared results under the mutex.
+			nsMu.Lock()
+			results.Pods = append(results.Pods, localPods...)
+			results.Deployments = append(results.Deployments, localDeployments...)
+			results.HPAs = append(results.HPAs, localHPAs...)
+			results.Services = append(results.Services, localServices...)
+			results.Events = append(results.Events, localEvents...)
+			results.Quotas = append(results.Quotas, localQuotas...)
+			results.PVCs = append(results.PVCs, localPVCs...)
+			if localPVCNames != nil {
+				results.AllPVCNames[ns] = localPVCNames
+			}
+			results.DaemonSets = append(results.DaemonSets, localDaemonSets...)
+			results.StatefulSets = append(results.StatefulSets, localStatefulSets...)
+			results.Jobs = append(results.Jobs, localJobs...)
+			results.CronJobs = append(results.CronJobs, localCronJobs...)
+			errs = append(errs, localErrs...)
+			nsMu.Unlock()
+		}()
 	}
+	nsWg.Wait()
 
 	return diagnosis.RunAll(results, classifiers), errs
 }
@@ -675,6 +749,35 @@ func countConfigClusters(cfg *config.Config) int {
 		n += len(e.Clusters)
 	}
 	return n
+}
+
+// showDefaultEnvBanner prints the framed banner shown when default_env is active.
+func showDefaultEnvBanner(envName string) {
+	line1 := fmt.Sprintf("  klarity scan — scanning %s (default)", envName)
+	line2 := "  Use --env to scan other environments"
+	width := len(line1)
+	if len(line2) > width {
+		width = len(line2)
+	}
+	bar := strings.Repeat("═", width+2)
+	fmt.Printf("╔%s╗\n", bar)
+	fmt.Printf("║%-*s  ║\n", width, line1)
+	fmt.Printf("║%-*s  ║\n", width, line2)
+	fmt.Printf("╚%s╝\n\n", bar)
+}
+
+// suggestDefaultEnv returns the name of the first critical-tier environment,
+// falling back to the first environment in the config. Returns "" for empty configs.
+func suggestDefaultEnv(cfg *config.Config) string {
+	for _, env := range cfg.Environments {
+		if env.Tier == config.TierCritical {
+			return env.Name
+		}
+	}
+	if len(cfg.Environments) > 0 {
+		return cfg.Environments[0].Name
+	}
+	return ""
 }
 
 // clearScreen writes ANSI escape codes to move to the top-left and erase the

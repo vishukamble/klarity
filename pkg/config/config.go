@@ -46,11 +46,13 @@ type Environment struct {
 
 // Settings holds global scan behaviour parameters.
 type Settings struct {
-	LogTailLines          int      `yaml:"log_tail_lines"`
-	ParallelClusters      int      `yaml:"parallel_clusters"`
-	ScanIntervalSeconds   int      `yaml:"scan_interval_seconds"`
-	ExcludeCompletedJobs  bool     `yaml:"exclude_completed_jobs"`
-	DefaultNsExclude      []string `yaml:"default_ns_exclude"`
+	LogTailLines         int      `yaml:"log_tail_lines"`
+	ParallelClusters     int      `yaml:"parallel_clusters"`
+	ParallelNamespaces   int      `yaml:"parallel_namespaces"`
+	ScanIntervalSeconds  int      `yaml:"scan_interval_seconds"`
+	ExcludeCompletedJobs bool     `yaml:"exclude_completed_jobs"`
+	DefaultNsExclude     []string `yaml:"default_ns_exclude"`
+	DefaultEnv           string   `yaml:"default_env,omitempty"`
 }
 
 // Slack auth modes.
@@ -97,6 +99,7 @@ func DefaultConfig() *Config {
 		Settings: Settings{
 			LogTailLines:         50,
 			ParallelClusters:     4,
+			ParallelNamespaces:   10,
 			ScanIntervalSeconds:  300,
 			ExcludeCompletedJobs: true,
 			DefaultNsExclude: []string{
