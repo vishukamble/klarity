@@ -139,3 +139,55 @@ func TestBuildEnvironmentsFromInput_MissingAssignment(t *testing.T) {
 		t.Fatal("expected error for missing assignment")
 	}
 }
+
+func TestAssignClusters_SingleCluster_NoPrompt(t *testing.T) {
+	promptCalled := false
+	promptFn := func(available []string) ([]string, error) {
+		promptCalled = true
+		return nil, nil
+	}
+	result, err := assignClusters([]string{"only-cluster"}, promptFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if promptCalled {
+		t.Error("prompt should not be called when only one cluster is available")
+	}
+	if len(result) != 1 || result[0] != "only-cluster" {
+		t.Errorf("expected [only-cluster], got %v", result)
+	}
+}
+
+func TestAssignClusters_RetriesOnEmptySelection(t *testing.T) {
+	calls := 0
+	promptFn := func(available []string) ([]string, error) {
+		calls++
+		if calls == 1 {
+			return nil, nil // first call returns empty → should re-prompt
+		}
+		return []string{"cluster-a"}, nil // second call returns selection
+	}
+	result, err := assignClusters([]string{"cluster-a", "cluster-b"}, promptFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("expected 2 prompt calls (1 empty + 1 valid), got %d", calls)
+	}
+	if len(result) != 1 || result[0] != "cluster-a" {
+		t.Errorf("unexpected result: %v", result)
+	}
+}
+
+func TestAssignClusters_MultipleAvailable_SingleSelection(t *testing.T) {
+	promptFn := func(available []string) ([]string, error) {
+		return []string{available[0]}, nil
+	}
+	result, err := assignClusters([]string{"a", "b", "c"}, promptFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 1 || result[0] != "a" {
+		t.Errorf("unexpected result: %v", result)
+	}
+}

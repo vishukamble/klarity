@@ -1,6 +1,7 @@
 package logs
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -36,6 +37,11 @@ func Summarize(logs string) string {
 	// 3. Go — first "panic:" or "fatal error:" line
 	if s := firstMatchingLineCaseInsensitive(lines, "panic:", "fatal error:"); s != "" {
 		return strings.TrimSpace(s)
+	}
+
+	// 3b. Go structured log — "command failed" err="[flag, flag, ...]"
+	if s := goCommandFailed(lines); s != "" {
+		return s
 	}
 
 	// 4. Generic fatal keywords
@@ -124,6 +130,42 @@ func pythonException(lines []string) string {
 			continue
 		}
 		return strings.TrimSpace(l)
+	}
+	return ""
+}
+
+// goCommandFailed extracts the error summary from Go structured log lines of the form:
+// "command failed" err="[flag, flag, ...]"
+// Returns the first flag name plus "(and N more)" if multiple flags are listed.
+func goCommandFailed(lines []string) string {
+	const marker = `"command failed" err="`
+	for _, l := range lines {
+		idx := strings.Index(l, marker)
+		if idx < 0 {
+			continue
+		}
+		after := l[idx+len(marker):]
+		if !strings.HasPrefix(after, "[") {
+			continue
+		}
+		// Find closing ]"
+		end := strings.Index(after, `]"`)
+		if end < 0 {
+			end = strings.Index(after, `]`)
+			if end < 0 {
+				continue
+			}
+		}
+		content := strings.TrimSpace(after[1:end])
+		if content == "" {
+			continue
+		}
+		parts := strings.Split(content, ", ")
+		first := strings.TrimSpace(parts[0])
+		if len(parts) == 1 {
+			return "command failed: " + first
+		}
+		return fmt.Sprintf("command failed: %s (and %d more)", first, len(parts)-1)
 	}
 	return ""
 }

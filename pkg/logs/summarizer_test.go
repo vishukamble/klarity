@@ -113,6 +113,23 @@ panic: nil pointer dereference`,
 			wantContains: "panic: nil pointer dereference",
 		},
 
+		// ── Go structured log — "command failed" ─────────────────────────────────
+		{
+			name: "go structured log multiple missing flags",
+			logs: `E0323 14:37:32.618930  1 run.go:74] "command failed" err="[service-account-issuer is a required flag, service-account-key-file is a required flag, --service-account-signing-key-file and --service-account-issuer are required flags]"`,
+			wantExact: "command failed: service-account-issuer is a required flag (and 2 more)",
+		},
+		{
+			name: "go structured log two missing flags",
+			logs: `E0323 14:37:32.618930  1 run.go:74] "command failed" err="[service-account-issuer is a required flag, service-account-key-file is a required flag]"`,
+			wantExact: "command failed: service-account-issuer is a required flag (and 1 more)",
+		},
+		{
+			name: "go structured log single missing flag",
+			logs: `E0323 14:37:32.618930  1 run.go:74] "command failed" err="[service-account-issuer is a required flag]"`,
+			wantExact: "command failed: service-account-issuer is a required flag",
+		},
+
 		// ── Generic fatal ─────────────────────────────────────────────────────────
 		{
 			name: "generic FATAL line",

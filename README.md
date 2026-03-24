@@ -23,6 +23,7 @@
   <a href="#what-klarity-scans">What It Scans</a> •
   <a href="#all-flags">All Flags</a> •
   <a href="#configuration">Configuration</a> •
+  <a href="CHANGELOG.md">Changelog</a>
   <a href="#aks--azure-cli-authentication">AKS Auth</a>
 </p>
 
@@ -94,16 +95,16 @@ klarity --output json | jq '.summary'
 
 | Resource | Checks |
 |---|---|
-| **Nodes** | NotReady, MemoryPressure, DiskPressure, PIDPressure, NetworkUnavailable |
-| **Pods** | CrashLoopBackOff with log-extracted root cause, ImagePullBackOff, OOMKilled, Pending |
-| **Deployments** | Unavailable replicas, ready/desired mismatch |
-| **DaemonSets** | Desired vs ready, misscheduled pods |
+| **ResourceQuotas** | Approaching or exceeding quota |
 | **StatefulSets** | Stuck rollouts, replica mismatch |
+| **DaemonSets** | Desired vs ready, misscheduled pods |
 | **Services** | No matching endpoints (selector mismatch) |
 | **HPAs** | At max replicas, metric overshoot, missing targets |
+| **Deployments** | Unavailable replicas, ready/desired mismatch |
 | **Jobs / CronJobs** | Failed jobs, suspended CronJobs, deadline exceeded |
-| **ResourceQuotas** | Approaching or exceeding quota |
 | **PVCs** | Stuck in Pending, missing PVC references with typo suggestions |
+| **Nodes** | NotReady, MemoryPressure, DiskPressure, PIDPressure, NetworkUnavailable |
+| **Pods** | CrashLoopBackOff with log-extracted root cause, ImagePullBackOff, OOMKilled, Pending |
 | **Warning Events** | Classified by root cause — mount failures, config errors, probe failures, evictions, admission webhooks, taint mismatches |
 
 ### Error Classification
@@ -136,6 +137,7 @@ klarity doesn't just report symptoms — it extracts root causes:
 | `--interval` | `--interval 60` | Override scan interval in seconds |
 | `-o, --output` | `--output json` | Output format: `table` (default) or `json` |
 | `--log-lines` | `--log-lines 100` | Log lines to pull per pod for crash analysis |
+| `--history` | `--history` or `--history 20` | Show scan history. Optional number = how many entries (default 10). `--history --env prod` to filter by environment |
 
 ## Config Commands
 
@@ -143,9 +145,10 @@ klarity doesn't just report symptoms — it extracts root causes:
 |---|---|
 | `klarity init` | Interactive setup wizard — detects environments, saves config |
 | `klarity config show` | Print current config |
-| `klarity config validate` | Validate config and verify cluster contexts exist in kubeconfig |
 | `klarity config edit` | Open config in `$EDITOR` |
 | `klarity slack setup` | Configure Slack notifications |
+| `klarity config validate` | Validate config and verify cluster contexts exist in kubeconfig |
+| `klarity --history` | Show history of past scans from `~/.klarity.log`. Use `--history 20` for more, `--history --env prod` to filter |
 
 ---
 
@@ -184,6 +187,18 @@ Namespace filtering is per-cluster — mix `all`, `include`, and `exclude` modes
 across clusters in the same environment.
 
 ---
+
+## Cache & History
+
+klarity writes two files after every scan:
+
+| File | Purpose |
+|---|---|
+| `~/.klarity_cache` | Last scan result — shown instantly on next run while a fresh scan runs in the background |
+| `~/.klarity.log` | Append-only log of every scan with timestamps and issue counts per environment |
+
+Running `klarity` mid-interval shows cached results immediately with a `(cached Xm ago, scanning...)` label. If the background scan finds different results, the screen re-renders automatically. If the scan fails, the cached result is kept with a warning.
+
 
 ## AKS / Azure CLI Authentication
 

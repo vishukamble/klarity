@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -15,6 +16,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	"github.com/vishukamble/klarity/pkg/cache"
 	"github.com/vishukamble/klarity/pkg/config"
 	"github.com/vishukamble/klarity/pkg/diagnosis"
 	"github.com/vishukamble/klarity/pkg/kube"
@@ -34,6 +36,7 @@ var (
 	flagCategory  string
 	flagWatch     bool
 	flagInterval  int
+	flagHistory   int
 )
 
 // ── Root command ──────────────────────────────────────────────────────────────
@@ -73,6 +76,9 @@ func init() {
 		"Continuously scan and refresh the display")
 	rootCmd.Flags().IntVar(&flagInterval, "interval", 0,
 		"Override scan interval in seconds (default: settings.scan_interval_seconds)")
+	rootCmd.Flags().IntVar(&flagHistory, "history", 0,
+		"Show scan history (last N scans; --history alone shows last 10)")
+	rootCmd.Flag("history").NoOptDefVal = "10"
 }
 
 // Execute is the entry point called from main.go.
@@ -86,6 +92,15 @@ func Execute() {
 // ── Scan entrypoint ───────────────────────────────────────────────────────────
 
 func runScan(cmd *cobra.Command, args []string) error {
+	// --history: show scan log and exit (no config or kubeconfig needed).
+	if flagHistory > 0 {
+		logPath, err := cache.LogPath()
+		if err != nil {
+			return fmt.Errorf("resolving log path: %w", err)
+		}
+		return showHistory(flagHistory, flagEnv, logPath)
+	}
+
 	cfgPath, err := config.ConfigPath()
 	if err != nil {
 		return fmt.Errorf("resolving config path: %w", err)
@@ -157,48 +172,98 @@ func runScan(cmd *cobra.Command, args []string) error {
 		diagnosis.EventClassifier{},
 	}
 
-	if !flagWatch {
-		// Single-shot scan.
-		return doScan(context.Background(), cfg, classifiers, categorySet, nsInclude, nsExclude, interval)
-	}
+	cachePath, _ := cache.DefaultPath()
+	logPath, _ := cache.LogPath()
 
 	// ── Watch mode ────────────────────────────────────────────────────────────
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
+	if flagWatch {
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
 
-	for {
-		clearScreen()
-		fmt.Printf("klarity --watch | scanning every %ds | press Ctrl+C to stop\n\n", interval)
-		if err := doScan(ctx, cfg, classifiers, categorySet, nsInclude, nsExclude, interval); err != nil {
-			if errors.Is(err, context.Canceled) {
+		for {
+			clearScreen()
+			fmt.Printf("klarity --watch | scanning every %ds | press Ctrl+C to stop\n\n", interval)
+			if err := doScan(ctx, cfg, classifiers, categorySet, nsInclude, nsExclude, interval, cachePath, logPath); err != nil {
+				if errors.Is(err, context.Canceled) {
+					fmt.Fprintln(os.Stdout, "\nWatch mode stopped.")
+					return nil
+				}
+				fmt.Fprintf(os.Stderr, "scan error: %v\n", err)
+			}
+
+			select {
+			case <-ctx.Done():
 				fmt.Fprintln(os.Stdout, "\nWatch mode stopped.")
 				return nil
+			case <-time.After(time.Duration(interval) * time.Second):
 			}
-			// Non-fatal scan error: print and continue watching.
-			fmt.Fprintf(os.Stderr, "scan error: %v\n", err)
-		}
-
-		select {
-		case <-ctx.Done():
-			fmt.Fprintln(os.Stdout, "\nWatch mode stopped.")
-			return nil
-		case <-time.After(time.Duration(interval) * time.Second):
 		}
 	}
+
+	// ── Single-shot mode: check cache first ───────────────────────────────────
+	if flagOutput != "json" {
+		cachedData, loadErr := cache.Load(cachePath)
+		if loadErr != nil {
+			// Corrupted cache — remove and fall through to live scan.
+			os.Remove(cachePath)
+			cachedData = nil
+		}
+
+		if cachedData != nil {
+			// Show cached results instantly with a "scanning..." label.
+			ageStr := formatCacheAge(cache.Age(cachedData))
+			fmt.Printf("(cached %s ago, scanning...)\n\n", ageStr)
+			output.RenderReport(os.Stdout, cachedData.Findings, cfg, cachedData.ScannedAt, nil)
+
+			// Background scan.
+			type bgResult struct {
+				findings []diagnosis.Finding
+				errs     []string
+			}
+			ch := make(chan bgResult, 1)
+			go func() {
+				f, e := gatherFindings(context.Background(), cfg, classifiers, nsInclude, nsExclude)
+				ch <- bgResult{f, e}
+			}()
+
+			r := <-ch
+			if len(categorySet) > 0 {
+				r.findings = filterByCategory(r.findings, categorySet)
+			}
+
+			// Write fresh cache and log.
+			scanTime := time.Now()
+			newCache := &cache.Cache{ScannedAt: scanTime, Findings: r.findings}
+			_ = cache.Save(cachePath, newCache)
+			_ = cache.AppendLog(logPath, buildLogEntry(r.findings, scanTime))
+
+			if cache.Equal(cachedData.Findings, r.findings) {
+				fmt.Printf("\n✓ Still current (verified at %s)\n", scanTime.Format("15:04:05"))
+			} else {
+				clearScreen()
+				output.RenderReport(os.Stdout, r.findings, cfg, scanTime, r.errs)
+			}
+
+			// Post to Slack if configured.
+			postToSlack(cfg, r.findings, scanTime)
+			return nil
+		}
+	}
+
+	// No cache (or JSON mode): scan live.
+	return doScan(context.Background(), cfg, classifiers, categorySet, nsInclude, nsExclude, interval, cachePath, logPath)
 }
 
-// doScan executes one full scan cycle and renders the result.
-func doScan(
+// gatherFindings runs the parallel scan across all clusters and returns the
+// combined findings and non-fatal error strings. It does not render or write
+// anything — that is the caller's responsibility.
+func gatherFindings(
 	ctx context.Context,
 	cfg *config.Config,
 	classifiers []diagnosis.Classifier,
-	categorySet map[diagnosis.Category]bool,
 	nsInclude []string,
 	nsExclude []string,
-	interval int,
-) error {
-	startTime := time.Now()
-
+) ([]diagnosis.Finding, []string) {
 	var mu sync.Mutex
 	var allFindings []diagnosis.Finding
 	var scanErrors []string
@@ -242,6 +307,53 @@ func doScan(
 	}
 	wg.Wait()
 
+	return allFindings, scanErrors
+}
+
+// buildLogEntry builds a cache.LogEntry from a completed scan.
+func buildLogEntry(findings []diagnosis.Finding, t time.Time) cache.LogEntry {
+	envCounts := make(map[string]int)
+	for _, f := range findings {
+		envCounts[f.EnvName]++
+	}
+	return cache.LogEntry{
+		ScannedAt:    t,
+		Environments: envCounts,
+		Total:        len(findings),
+	}
+}
+
+// postToSlack sends a Slack notification if Slack is configured.
+func postToSlack(cfg *config.Config, findings []diagnosis.Finding, t time.Time) {
+	if !cfg.Notifications.Slack.Enabled {
+		return
+	}
+	meta := notifications.ScanMeta{
+		Timestamp:    t,
+		EnvCount:     len(cfg.Environments),
+		ClusterCount: countConfigClusters(cfg),
+	}
+	if err := notifications.SendSummary(notifications.DefaultHTTPClient, cfg.Notifications.Slack, findings, meta); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ Slack notification failed: %v\n", err)
+	}
+}
+
+// doScan executes one full scan cycle, writes cache + log, and renders the result.
+func doScan(
+	ctx context.Context,
+	cfg *config.Config,
+	classifiers []diagnosis.Classifier,
+	categorySet map[diagnosis.Category]bool,
+	nsInclude []string,
+	nsExclude []string,
+	interval int,
+	cachePath string,
+	logPath string,
+) error {
+	startTime := time.Now()
+
+	allFindings, scanErrors := gatherFindings(ctx, cfg, classifiers, nsInclude, nsExclude)
+
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -249,6 +361,15 @@ func doScan(
 	// Apply --category filter post-classify.
 	if len(categorySet) > 0 {
 		allFindings = filterByCategory(allFindings, categorySet)
+	}
+
+	// Write cache and log after every scan (including watch-mode iterations).
+	if cachePath != "" {
+		c := &cache.Cache{ScannedAt: startTime, Findings: allFindings}
+		_ = cache.Save(cachePath, c)
+	}
+	if logPath != "" {
+		_ = cache.AppendLog(logPath, buildLogEntry(allFindings, startTime))
 	}
 
 	switch flagOutput {
@@ -261,16 +382,7 @@ func doScan(
 	}
 
 	// Post to Slack if configured.
-	if cfg.Notifications.Slack.Enabled {
-		meta := notifications.ScanMeta{
-			Timestamp:    startTime,
-			EnvCount:     len(cfg.Environments),
-			ClusterCount: countConfigClusters(cfg),
-		}
-		if err := notifications.SendSummary(notifications.DefaultHTTPClient, cfg.Notifications.Slack, allFindings, meta); err != nil {
-			fmt.Fprintf(os.Stderr, "⚠ Slack notification failed: %v\n", err)
-		}
-	}
+	postToSlack(cfg, allFindings, startTime)
 
 	return nil
 }
@@ -566,4 +678,58 @@ func countConfigClusters(cfg *config.Config) int {
 // display. Works on Linux/macOS terminals; no-ops on Windows cmd.exe.
 func clearScreen() {
 	fmt.Print("\033[H\033[2J")
+}
+
+// formatCacheAge returns a human-readable duration string (e.g. "5m30s" or "42s").
+func formatCacheAge(d time.Duration) string {
+	d = d.Round(time.Second)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	m := int(d.Minutes())
+	s := int(d.Seconds()) - m*60
+	if s == 0 {
+		return fmt.Sprintf("%dm", m)
+	}
+	return fmt.Sprintf("%dm%ds", m, s)
+}
+
+// showHistory prints the last N scan log entries to stdout.
+func showHistory(last int, envFilter, logPath string) error {
+	entries, err := cache.ReadLog(logPath, last)
+	if err != nil {
+		return fmt.Errorf("reading history: %w", err)
+	}
+
+	entries = cache.FilterLog(entries, envFilter)
+
+	if len(entries) == 0 {
+		fmt.Println("No scan history found. Run klarity to start recording scans.")
+		return nil
+	}
+
+	fmt.Printf("klarity scan history — last %d scan(s)\n\n", len(entries))
+
+	for _, e := range entries {
+		line := e.ScannedAt.Local().Format("  2006-01-02 15:04")
+		if e.Total == 0 {
+			line += "  0 issues  ✓ clean"
+		} else {
+			line += fmt.Sprintf("  %d issues", e.Total)
+			// Sort env names for consistent display order.
+			envNames := make([]string, 0, len(e.Environments))
+			for name := range e.Environments {
+				envNames = append(envNames, name)
+			}
+			sort.Strings(envNames)
+			for _, name := range envNames {
+				count := e.Environments[name]
+				if count > 0 {
+					line += fmt.Sprintf("  %s: %d", name, count)
+				}
+			}
+		}
+		fmt.Println(line)
+	}
+	return nil
 }

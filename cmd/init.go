@@ -215,23 +215,26 @@ func runFallbackPath(allContexts []string, defaults *config.Config) (*config.Con
 		}
 		envName = strings.TrimSpace(envName)
 
-		opts := make([]huh.Option[string], len(allContexts))
-		for j, ctx := range allContexts {
-			opts[j] = huh.NewOption(ctx, ctx)
+		if len(allContexts) == 1 {
+			fmt.Printf("  ✓ Only one cluster available — auto-selected: %s\n", allContexts[0])
 		}
-		var chosen []string
-		ms := huh.NewMultiSelect[string]().
-			Title(fmt.Sprintf("Select clusters for %s:", envName)).
-			Options(opts...).
-			Value(&chosen)
-
-		if err := huh.NewForm(huh.NewGroup(ms)).Run(); err != nil {
-			return nil, fmt.Errorf("prompt error: %w", err)
-		}
-
-		if len(chosen) == 0 {
-			fmt.Printf("  ⚠ No clusters selected for %q — skipping this environment.\n", envName)
-			continue
+		chosen, err := assignClusters(allContexts, func(available []string) ([]string, error) {
+			opts := make([]huh.Option[string], len(available))
+			for j, ctx := range available {
+				opts[j] = huh.NewOption(ctx, ctx)
+			}
+			var sel []string
+			ms := huh.NewMultiSelect[string]().
+				Title(fmt.Sprintf("Select clusters for %s:", envName)).
+				Options(opts...).
+				Value(&sel)
+			if runErr := huh.NewForm(huh.NewGroup(ms)).Run(); runErr != nil {
+				return nil, fmt.Errorf("prompt error: %w", runErr)
+			}
+			return sel, nil
+		})
+		if err != nil {
+			return nil, err
 		}
 
 		envNames = append(envNames, envName)
@@ -348,6 +351,26 @@ func sortStrings(ss []string) {
 		for j := i; j > 0 && ss[j] < ss[j-1]; j-- {
 			ss[j], ss[j-1] = ss[j-1], ss[j]
 		}
+	}
+}
+
+// assignClusters returns the cluster selection for an environment.
+// If only one cluster is available it is returned immediately without calling
+// promptFn. Otherwise promptFn is called in a loop until a non-empty list is
+// returned, printing a re-prompt message on each empty selection.
+func assignClusters(available []string, promptFn func([]string) ([]string, error)) ([]string, error) {
+	if len(available) == 1 {
+		return available, nil
+	}
+	for {
+		chosen, err := promptFn(available)
+		if err != nil {
+			return nil, err
+		}
+		if len(chosen) > 0 {
+			return chosen, nil
+		}
+		fmt.Println("  ✗ No clusters selected — please select at least one.")
 	}
 }
 

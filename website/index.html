@@ -130,6 +130,74 @@
             </div>
         </div>
     </section>
+
+
+<section class="whats-new-section">
+    <div class="section-eyebrow">
+        <span class="eyebrow-line"></span>
+        <span class="eyebrow-text">v1.0.4</span>
+        <span class="eyebrow-line"></span>
+    </div>
+    <h2 class="section-title">What's new</h2>
+    <div class="new-features-grid">
+
+        <div class="new-card new-card--wide">
+            <div class="new-card__tag">Performance</div>
+            <h3 class="new-card__title">Instant results, even mid-interval</h3>
+            <p class="new-card__body">klarity now caches your last scan. Run it anytime — results appear instantly from cache while a fresh scan runs in the background. If anything changed, the screen refreshes automatically.</p>
+            <div class="cache-demo">
+                <div class="cache-demo__line"><span class="cd-prompt">$</span><span class="cd-cmd">klarity</span></div>
+                <div class="cache-demo__line"><span class="cd-dim">klarity scan — 2026-03-23 15:35:59 UTC &nbsp;</span><span class="cd-tag">(cached 4m ago, scanning...)</span></div>
+                <div class="cache-demo__line"><span class="cd-dim">Environments: 1 | Clusters: 1 scanned | Issues: 3 found</span></div>
+                <div class="cache-demo__divider"></div>
+                <div class="cache-demo__line"><span class="cd-check">✓</span><span class="cd-dim">Refreshed — still 3 issues found</span></div>
+            </div>
+        </div>
+
+        <div class="new-card">
+            <div class="new-card__tag">Observability</div>
+            <h3 class="new-card__title">Scan history, always on</h3>
+            <p class="new-card__body">Every scan is logged to <code class="inline-code">~/.klarity.log</code>. Review past runs with <code class="inline-code">--history</code>.</p>
+            <div class="history-demo">
+                <div class="hd-row hd-row--cmd"><span class="cd-prompt">$</span><span class="cd-cmd">klarity --history</span></div>
+                <div class="hd-row"><span class="hd-time">15:35</span><span class="hd-issues hd-issues--err">3 issues</span><span class="hd-env">prod: 2&nbsp; dev: 1</span></div>
+                <div class="hd-row"><span class="hd-time">15:30</span><span class="hd-issues hd-issues--err">3 issues</span><span class="hd-env">prod: 2&nbsp; dev: 1</span></div>
+                <div class="hd-row"><span class="hd-time">15:25</span><span class="hd-issues hd-issues--ok">0 issues</span><span class="hd-env hd-clean">✓ clean</span></div>
+                <div class="hd-row"><span class="hd-time">15:20</span><span class="hd-issues hd-issues--err">5 issues</span><span class="hd-env">prod: 5</span></div>
+            </div>
+        </div>
+
+        <div class="new-card">
+            <div class="new-card__tag">UX Fix</div>
+            <h3 class="new-card__title">Smarter onboarding</h3>
+            <p class="new-card__body">Single-cluster environments now auto-select during <code class="inline-code">klarity init</code> — no more manual space-toggle on the only available option.</p>
+            <div class="fix-demo">
+                <div class="fix-line fix-before">
+                    <span class="fix-label fix-label--bad">before</span>
+                    <span class="fix-text">Select clusters for dev:<br><span class="fix-indent">›&nbsp; • kubernetes-admin@kubernetes</span><br><span class="fix-indent fix-hint">x toggle • enter submit</span></span>
+                </div>
+                <div class="fix-arrow">↓</div>
+                <div class="fix-line fix-after">
+                    <span class="fix-label fix-label--good">after</span>
+                    <span class="fix-text"><span class="fix-check">✓</span>Only one cluster — auto-selected: kubernetes-admin@kubernetes</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="new-card new-card--wide">
+            <div class="new-card__tag">Diagnostics</div>
+            <h3 class="new-card__title">New error pattern: missing required flags</h3>
+            <p class="new-card__body">klarity now extracts clean one-line summaries from Go structured logs — including kube-apiserver startup failures caused by missing required flags.</p>
+            <div class="cache-demo">
+                <div class="cache-demo__line"><span class="cd-dim">Raw log:&nbsp;</span><span class="cd-err">E0323 14:37:32 run.go:74] "command failed" err="[service-account-issuer is a required flag, service-account-key-file is a required flag...]"</span></div>
+                <div class="cache-demo__divider"></div>
+                <div class="cache-demo__line"><span class="cd-dim">klarity shows:&nbsp;</span><span class="cd-good">command failed: service-account-issuer is a required flag (and 2 more)</span></div>
+            </div>
+        </div>
+
+    </div>
+</section>
+    <br>
 </main>
 
 <footer>

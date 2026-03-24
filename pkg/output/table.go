@@ -327,6 +327,9 @@ func RenderReport(
 
 			if !clusterHasFindings {
 				fmt.Fprintln(w, DimStyle.Render("  ✅ No issues found."))
+				if kubeSystemExcluded(cluster, cfg.Settings.DefaultNsExclude) {
+					fmt.Fprintln(w, DimStyle.Render("   ℹ kube-system excluded — use --include-system to scan control plane components"))
+				}
 			}
 			fmt.Fprintln(w)
 		}
@@ -446,3 +449,42 @@ func wrapLines(s string, maxWidth int) string {
 }
 
 const wrapWidth = 80
+
+// kubeSystemExcluded reports whether kube-system would be excluded from scanning
+// for the given cluster configuration and default exclusion list.
+func kubeSystemExcluded(cluster config.Cluster, defaultExclude []string) bool {
+	ns := cluster.Namespaces
+	switch ns.Mode {
+	case config.NamespaceModeInclude:
+		// kube-system is excluded unless explicitly listed in the include set.
+		for _, n := range ns.Include {
+			if n == "kube-system" {
+				return false
+			}
+		}
+		return true
+	case config.NamespaceModeExclude:
+		for _, n := range ns.Exclude {
+			if n == "kube-system" {
+				return true
+			}
+		}
+		return false
+	default: // all
+		// Cluster-specific exclude list takes precedence over default.
+		if len(ns.Exclude) > 0 {
+			for _, n := range ns.Exclude {
+				if n == "kube-system" {
+					return true
+				}
+			}
+			return false
+		}
+		for _, n := range defaultExclude {
+			if n == "kube-system" {
+				return true
+			}
+		}
+		return false
+	}
+}
