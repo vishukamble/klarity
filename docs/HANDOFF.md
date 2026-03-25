@@ -4,46 +4,19 @@
 
 ## What To Do Next
 
-All core features are implemented. Focus areas for the next session:
+All core features are implemented. Next session should focus on polish and hardening.
 
-### Hardening / polish
+### High priority
 
-- **`klarity uninstall`** — `cmd/uninstall.go` exists (staged in git) but needs review; removes `~/.klarityconfig.yaml`, `~/.klarity_cache`, `~/.klarity.log`
-- **`config show` — display `default_env` when set** — `cmd/config.go` `config show` should surface `settings.default_env` when present
-- **Integration test for default_env** — add a `cmd/root_test.go` test that constructs a >10-cluster config with `DefaultEnv` set and verifies `filterByEnv` is applied correctly (without TTY)
+- **`klarity uninstall`** — `cmd/uninstall.go` is staged in git but unreviewed; should remove `~/.klarityconfig.yaml`, `~/.klarity_cache`, `~/.klarity.log` with confirmation prompt
+- **`config show` — surface `default_env`** — `cmd/config.go` `config show` doesn't display `settings.default_env` when set; add it to the human-readable output
+- **`klarity env` output test** — `pkg/output/envtable_test.go`: add table-driven tests for `RenderEnvTable` — empty input, single env, critical row colouring (noColor=true path), multi-line context names; the function is currently untested
 
-### Previously queued (still relevant)
+### Medium priority
 
-### 1. FEAT-04: Pod scanner — `pkg/kube/pods.go`
-
-List pods across namespaces. Identify and return structured `PodIssue` results for:
-- `CrashLoopBackOff` — container waiting with reason CrashLoopBackOff
-- `ImagePullBackOff` / `ErrImagePull` — container waiting with either reason
-- `OOMKilled` — container lastState terminated with reason OOMKilled
-- `Pending` — pod phase Pending (extract scheduling reason from conditions)
-- Init container failures — any init container not in running/succeeded state
-
-Return type: `[]PodIssue`. No formatting, no output — raw structured data only.
-
-Tests: fake client with pods in each state; verify correct reason/image/restart fields populated.
-
-### 2. FEAT-05: Deployment scanner — `pkg/kube/deployments.go`
-
-List deployments. Flag any where `unavailableReplicas > 0` OR `readyReplicas < spec.replicas`.
-
-Return type: `[]DeploymentIssue{Namespace, Name, DesiredReplicas, ReadyReplicas, UnavailableReplicas}`.
-
-Tests: fake client with healthy and degraded deployments; verify only degraded ones returned.
-
-### 3. FEAT-08: Event collector — `pkg/kube/events.go`
-
-List Warning-type events in the last 15 minutes for a namespace. Use `FieldSelector: "type=Warning"` and filter `LastTimestamp` (or `EventTime`) within the lookback window.
-
-Return type: `[]EventIssue{Namespace, ObjectName, ObjectKind, Reason, Message, Count, LastSeen}`.
-
-Tests: fake client with events inside and outside the window; verify only recent ones returned.
-
-**After all three scanners have passing tests, proceed to FEAT-12: Classifier interface** before building more scanners. The classifier interface (`pkg/diagnosis/classifier.go`) defines how scanner output is consumed — it must exist before writing classifiers for each scanner type.
+- **`klarity init --reset`** flag — re-run wizard and overwrite existing config; currently `klarity init` on an existing config silently overwrites without warning
+- **`--no-default` flag** — one-shot override: run full scan ignoring `default_env` for this invocation
+- **Version bump** — currently `1.0.7`; bump to `1.1.0` when `klarity uninstall` ships (first new command since initial release)
 
 ### Reminder: validation order after each change
 ```
@@ -51,7 +24,6 @@ go build -o klarity .   # must compile
 go vet ./...            # must pass
 go test ./...           # must pass
 ```
-Add table tests for every new classifier. Do not skip validation.
 
 ### How the Full Pipeline Fits Together (implemented)
 
@@ -99,6 +71,20 @@ gatherFindings()
 
 ## Previous Session Summary
 
+**2026-03-25 — Session 32: preprod, klarity env, multi-env --env, init table rendering**
+
+5 items:
+
+| Item | Files | Summary |
+|---|---|---|
+| preprod keyword | `pkg/config/detect.go`, `detect_test.go` | `{label:"preprod",keywords:["preprod","pre-prod"]}` before "prod"; `eksRe` updated; `tierForLabel` adds `containsWord(lower,"preprod")` → critical; 6 new tests |
+| `klarity env` command | `cmd/env.go`, `pkg/output/envtable.go` | `RenderEnvTable(envs,noColor)` in pkg/output; cobra command with alias `ls`; TTY detection via golang.org/x/term; critical rows red |
+| Init table rendering | `cmd/init.go` | Phase 1 + Phase 4 use `RenderEnvTable`; two helpers `detectedToEnvs`/`selectedToEnvs`; import `golang.org/x/term` + `pkg/output` |
+| Fix: default cursor | `cmd/init.go` | `promptDefaultEnv` initialises `chosen` to first real env, not `""` |
+| Multi-env `--env` | `cmd/root.go`, `root_test.go` | `-e` shorthand; `filterByEnvs(cfg,[]string)` with sorted multi-error; 5 new tests |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (275 tests)
+
 **2026-03-24 — Session 31: Multi-strategy detection, parallel namespaces, default_env**
 
 4 features implemented:
@@ -110,9 +96,9 @@ gatherFindings()
 | Parallel namespace scanning | `cmd/root.go`, `pkg/config/config.go` | WaitGroup+semaphore per-namespace; `parallel_namespaces: 10` setting; old configs coerced to 10 |
 | FEAT-35: default_env | `pkg/config/config.go`, `cmd/root.go`, `cmd/root_test.go` | `Settings.DefaultEnv`; banner when active; large-cluster warning with suggestion when no default |
 
-Also: fixed root.go syntax error (incomplete duplicate cache block); version bumped to 1.0.5.
+Also: fixed root.go syntax error (incomplete duplicate cache block); version bumped to 1.0.5 → 1.0.6.
 
-Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (272 tests)
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (271 tests)
 
 **2026-03-23 — Session 30: Docs update — REMEMBER/HANDOFF aligned with session 29 work**
 

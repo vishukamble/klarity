@@ -196,3 +196,90 @@ func TestShowDefaultEnvBanner(t *testing.T) {
 		t.Errorf("banner line1 does not contain env name %q", envName)
 	}
 }
+
+// ── filterByEnvs ──────────────────────────────────────────────────────────────
+
+func makeTestCfg(envNames ...string) *config.Config {
+	cfg := &config.Config{
+		Version:  config.CurrentVersion,
+		Settings: config.Settings{LogTailLines: 1, ParallelClusters: 1, ScanIntervalSeconds: 1},
+	}
+	for _, name := range envNames {
+		tier := config.TierStandard
+		if strings.Contains(name, "prod") {
+			tier = config.TierCritical
+		}
+		cfg.Environments = append(cfg.Environments, config.Environment{
+			Name: name, Tier: tier,
+			Clusters: []config.Cluster{{Context: name + "-ctx", Namespaces: config.NamespaceFilter{Mode: config.NamespaceModeAll}}},
+		})
+	}
+	return cfg
+}
+
+func TestFilterByEnvs(t *testing.T) {
+	tests := []struct {
+		name      string
+		envNames  []string
+		filter    []string
+		wantNames []string
+		wantErr   string
+	}{
+		{
+			name:      "single match",
+			envNames:  []string{"prod-intel", "dev-intel"},
+			filter:    []string{"prod-intel"},
+			wantNames: []string{"prod-intel"},
+		},
+		{
+			name:      "multi match",
+			envNames:  []string{"prod-intel", "prod-ravn", "dev-intel"},
+			filter:    []string{"prod-intel", "prod-ravn"},
+			wantNames: []string{"prod-intel", "prod-ravn"},
+		},
+		{
+			name:     "one missing",
+			envNames: []string{"prod-intel", "dev-intel"},
+			filter:   []string{"prod-intel", "staging"},
+			wantErr:  `"staging"`,
+		},
+		{
+			name:     "all missing",
+			envNames: []string{"prod-intel"},
+			filter:   []string{"nope"},
+			wantErr:  `"nope"`,
+		},
+		{
+			name:      "preserves order from config",
+			envNames:  []string{"dev-intel", "prod-intel", "staging"},
+			filter:    []string{"staging", "prod-intel"},
+			wantNames: []string{"prod-intel", "staging"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := makeTestCfg(tt.envNames...)
+			got, err := filterByEnvs(cfg, tt.filter)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			gotNames := make([]string, len(got.Environments))
+			for i, e := range got.Environments {
+				gotNames[i] = e.Name
+			}
+			if !reflect.DeepEqual(gotNames, tt.wantNames) {
+				t.Errorf("filterByEnvs() envs = %v, want %v", gotNames, tt.wantNames)
+			}
+		})
+	}
+}

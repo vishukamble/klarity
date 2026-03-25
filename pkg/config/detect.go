@@ -13,6 +13,9 @@ var envKeywords = []struct {
 	label    string
 	keywords []string
 }{
+	// preprod must precede prod so word-boundary matching returns "preprod"
+	// for names like "ravn-preprod-cus", not "prod".
+	{label: "preprod", keywords: []string{"preprod", "pre-prod"}},
 	{label: "prod", keywords: []string{"production", "prod"}},
 	{label: "staging", keywords: []string{"staging", "stg"}},
 	{label: "dev", keywords: []string{"development", "dev"}},
@@ -28,7 +31,7 @@ var aksRe = regexp.MustCompile(`^aks-([^-]+)-([^-]+)-`)
 
 // eksRe matches EKS/AWS cluster names of the form {project}-{level}-{rest}.
 // Group 1 = project, group 2 = level (must be a known env keyword).
-var eksRe = regexp.MustCompile(`^([^-]+)-(prod|production|staging|stg|dev|development|qa|uat|sandbox|test|testing)-`)
+var eksRe = regexp.MustCompile(`^([^-]+)-(preprod|prod|production|staging|stg|dev|development|qa|uat|sandbox|test|testing)-`)
 
 // regionSkipTokens contains location abbreviations that carry no env meaning.
 var regionSkipTokens = map[string]bool{
@@ -347,12 +350,13 @@ func BuildManualConfig(envNames []string, clustersByEnv map[string][]string, def
 	return cfg
 }
 
-// tierForLabel assigns a tier based on whether the label contains "prod" or
-// "production" as a word. This handles compound names like "prod-intel"
-// (critical) and "dev-ravn" (standard).
+// tierForLabel assigns a tier based on whether the label contains a
+// production-class keyword as a word. "preprod" is treated as critical
+// (same risk class as prod). This handles compound names like "prod-intel"
+// (critical), "preprod-ravn" (critical), and "dev-ravn" (standard).
 func tierForLabel(label string) string {
 	lower := strings.ToLower(label)
-	if containsWord(lower, "prod") || containsWord(lower, "production") {
+	if containsWord(lower, "preprod") || containsWord(lower, "prod") || containsWord(lower, "production") {
 		return TierCritical
 	}
 	return TierStandard

@@ -77,6 +77,10 @@ var matchLabelTests = []struct {
 	{"prod-us-east-1", "prod"},
 	{"production-eu", "prod"},
 	{"my-prod-cluster", "prod"},
+	// preprod variants (must come back as "preprod", not "prod")
+	{"ravn-preprod-centralus", "preprod"},
+	{"preprod-us-east-1", "preprod"},
+	{"my-pre-prod-env", "preprod"},
 	// staging variants
 	{"staging-us-east-1", "staging"},
 	{"stg-eu-west", "staging"},
@@ -513,6 +517,9 @@ var tierForLabelTests = []struct {
 	{"prod-intel", TierCritical},
 	{"prod-myapp", TierCritical},
 	{"production-east", TierCritical},
+	{"preprod", TierCritical},
+	{"preprod-ravn", TierCritical},
+	{"pre-prod-intel", TierCritical},
 	{"dev", TierStandard},
 	{"dev-ravn", TierStandard},
 	{"dev-intel", TierStandard},
@@ -522,6 +529,31 @@ var tierForLabelTests = []struct {
 	{"tooling", TierStandard},
 	// "reproduced" should NOT be critical despite containing "prod" substring
 	{"reproduced-cluster", TierStandard},
+}
+
+// ──────────────────────────────────────────────
+// Named preprod tests (per spec)
+// ──────────────────────────────────────────────
+
+func TestMatchLabel_Preprod(t *testing.T) {
+	got := matchLabel("ravn-preprod-centralus")
+	if got != "preprod" {
+		t.Errorf("matchLabel(%q) = %q, want %q", "ravn-preprod-centralus", got, "preprod")
+	}
+}
+
+func TestTierForLabel_Preprod(t *testing.T) {
+	got := tierForLabel("preprod-ravn")
+	if got != TierCritical {
+		t.Errorf("tierForLabel(%q) = %q, want %q", "preprod-ravn", got, TierCritical)
+	}
+}
+
+func TestBestGuessGroup_Preprod(t *testing.T) {
+	got := BestGuessGroup("ravn-preprod-centralus")
+	if got != "preprod-ravn" {
+		t.Errorf("BestGuessGroup(%q) = %q, want %q", "ravn-preprod-centralus", got, "preprod-ravn")
+	}
 }
 
 func TestTierForLabel(t *testing.T) {

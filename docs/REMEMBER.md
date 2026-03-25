@@ -4,9 +4,9 @@
 
 ## Current State
 
-**Last updated:** 2026-03-24
-**Last session focus:** Multi-strategy cluster detection, parallel namespace scanning, default_env
-**Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass, 271 test cases)
+**Last updated:** 2026-03-25
+**Last session focus:** preprod keyword, `klarity env` command, multi-env --env flag, table rendering in init
+**Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass, 275 test cases)
 
 ## Project Initialization
 
@@ -77,7 +77,7 @@ Also added:
 ### Phase 9: CLI Polish & Scanning
 - [x] **FEAT-27: Node scanner** — `pkg/kube/nodes.go` `ListUnhealthyNodes()` checks NotReady/MemoryPressure/DiskPressure/PIDPressure/NetworkUnavailable. `pkg/diagnosis/nodes.go` `NodeClassifier` with `classifyNodeCondition()`. Renders FIRST in output. 14 tests. (2026-03-22)
 - [x] **FEAT-28: `klarity config edit`** — `cmd/config.go`: opens config in $EDITOR (fallback: nano/vim/vi), validates after save. (2026-03-22)
-- [x] **FEAT-29: `--version` flag** — `cmd/root.go`: `rootCmd.Version = "1.0.3"`, prints `klarity version 1.0.3`. (2026-03-22)
+- [x] **FEAT-29: `--version` flag** — `cmd/root.go`: `rootCmd.Version`, currently `1.0.6`. (2026-03-22; bumped each session)
 - [x] **FEAT-30b: `klarity config validate`** — `cmd/config.go`: loads config, runs Validate(), checks each cluster context against kubeconfig with ✓/⚠️ output. (2026-03-22)
 - [x] **FEAT-31: Watch mode improvements** — `cmd/root.go`: fixed clear sequence, added watch header with interval, clean Ctrl+C exit. (2026-03-22)
 - [x] **FEAT-32: JSON output completeness** — `pkg/output/json.go`: restructured from flat array to `{scan_time, environments[…], summary{…}}` with all categories mapped including NodeIssue. 6 tests. (2026-03-22)
@@ -103,7 +103,15 @@ Also added:
 - [x] **Parallel namespace scanning** — `cmd/root.go` `scanCluster()`: WaitGroup+semaphore fan-out over namespace loop, concurrency controlled by `cfg.Settings.ParallelNamespaces` (default 10). `pkg/config/config.go`: `ParallelNamespaces int` field added. 37 namespaces at concurrency 10 → ~15s vs ~76s sequential. (2026-03-24)
 - [x] **FEAT-35: Default environment** — `pkg/config/config.go`: `Settings.DefaultEnv string` field. `cmd/init.go`: `promptDefaultEnv()` after save when >10 clusters total. `cmd/root.go`: applies `default_env` when no `--env`/`--context` flags; shows framed banner when default active; prints large-cluster warning with `suggestDefaultEnv()` tip when no default and >10 clusters. 3 new tests (`TestSuggestDefaultEnv`). (2026-03-24)
 - [x] **root.go syntax fix** — Removed incomplete duplicate cache block that was breaking compilation. (2026-03-24)
-- [x] **Version bump** — `cmd/root.go`: version updated to `1.0.5`. (2026-03-24)
+- [x] **Version bump** — `cmd/root.go`: currently `1.0.7`. (2026-03-24 → 2026-03-25)
+
+## Session Additions (2026-03-25)
+
+- [x] **preprod keyword** — `pkg/config/detect.go`: added `{label: "preprod", keywords: []string{"preprod", "pre-prod"}}` before "prod" entry; `eksRe` updated to include "preprod"; `tierForLabel` updated — `containsWord(lower, "preprod")` → critical. `ravn-preprod-centralus` → "preprod" (not "prod"); "preprod-ravn" → critical. 6 new tests (`TestMatchLabel_Preprod`, `TestTierForLabel_Preprod`, `TestBestGuessGroup_Preprod` + 3 table entries). (2026-03-25)
+- [x] **`klarity env` command** — `cmd/env.go`: new cobra subcommand (`Use: "env"`, `Aliases: []string{"ls"}`); loads config, detects TTY via `golang.org/x/term`, calls `output.RenderEnvTable`. `pkg/output/envtable.go`: `RenderEnvTable(envs []config.Environment, noColor bool) string` — lipgloss/table with columns Environment | Tier | Clusters | Context Names; critical rows colour Environment and Context Names cells red (`lipgloss.Color("9")`); no colour when `noColor=true`. (2026-03-25)
+- [x] **Table rendering in init wizard** — `cmd/init.go`: Phase 1 "Proposed groupings" and Phase 4 "Config summary" now render `output.RenderEnvTable` instead of plain printf lists. Two new helpers: `detectedToEnvs(DetectedEnvs) []config.Environment` and `selectedToEnvs(map[string][]string, order) []config.Environment`. TTY detection via `golang.org/x/term`. (2026-03-25)
+- [x] **Fix: default cursor in promptDefaultEnv** — `cmd/init.go`: `chosen` initialised to `cfg.Environments[0].Name` (first real env) instead of `""`, so "No default — scan everything" is the last option but not the pre-selected cursor position. (2026-03-25)
+- [x] **Multi-env `--env` flag** — `cmd/root.go`: flag changed to `StringVarP` with `-e` shorthand; description updated to "comma-separated"; `filterByEnvs(cfg, []string) (*Config, error)` added — retains all matching envs, returns sorted error listing missing names; `--env` block parses via `parseCommaSeparated` then calls `filterByEnvs`. `filterByEnv` (single-env) kept for `default_env` path. 5 new `TestFilterByEnvs` subtests. (2026-03-25)
 
 ## Known Issues / Blockers
 
@@ -273,6 +281,13 @@ Other changes:
 - 2026-03-24: `promptDefaultEnv` uses `totalConfigClusters > 10`, not `len(Environments) > 10` — 11 clusters across 2 envs triggers it; 10 clusters across 10 envs does not
 - 2026-03-24: `showDefaultEnvBanner` / large-cluster warning only fires when both `--env` and `--context` are absent — explicit flags always bypass the default_env logic entirely
 - 2026-03-24: Cache is still written after a live scan even when `default_env` is active — the cache reflects whatever subset was actually scanned
+- 2026-03-25: "preprod" entry placed BEFORE "prod" in `envKeywords` — word-boundary check already prevents "prod" from matching inside "preprod", but ordering is explicit for clarity
+- 2026-03-25: `tierForLabel` checks `containsWord(lower, "preprod")` first — "preprod" is critical because it is a production-class environment; this also covers "preprod-ravn" compound names
+- 2026-03-25: `RenderEnvTable` lives in `pkg/output/envtable.go` — shared by both `cmd/env.go` and `cmd/init.go`; `noColor bool` param avoids coupling output to TTY detection
+- 2026-03-25: `klarity env` (alias `ls`) reads config and exits — no scanning, no kubeconfig connection; safe to run offline
+- 2026-03-25: `filterByEnvs` returns a sorted error for all missing env names at once — user sees every typo in one shot instead of fix-and-retry
+- 2026-03-25: `filterByEnv` (single-env, for `default_env`) kept separate from `filterByEnvs` (multi-env, for `--env`) — `default_env` is always one env and doesn't need the multi-error path
+- 2026-03-25: `promptDefaultEnv` cursor defaults to `cfg.Environments[0].Name` — "No default" is last in the option list; user must scroll past real envs to select it, reducing accidental dismissal
 
 ---
 

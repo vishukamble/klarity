@@ -42,7 +42,7 @@ var (
 // ── Root command ──────────────────────────────────────────────────────────────
 
 // Version is the CLI version string, set here for --version flag.
-const Version = "1.0.6"
+const Version = "1.0.7"
 
 var rootCmd = &cobra.Command{
 	Use:     "klarity",
@@ -62,8 +62,8 @@ func init() {
 
 	rootCmd.Flags().StringVarP(&flagOutput, "output", "o", "table",
 		"Output format: table (default) | json")
-	rootCmd.Flags().StringVar(&flagEnv, "env", "",
-		"Limit scan to this environment name (e.g. prod)")
+	rootCmd.Flags().StringVarP(&flagEnv, "env", "e", "",
+		"Limit scan to environment(s), comma-separated (e.g. prod-intel or prod-intel,prod-ravn)")
 	rootCmd.Flags().StringVar(&flagContext, "context", "",
 		"Limit scan to this cluster context name")
 	rootCmd.Flags().StringVarP(&flagNamespace, "namespace", "n", "",
@@ -137,12 +137,14 @@ func runScan(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "   or run klarity --env <name> to scan a specific environment.\n\n")
 	}
 
-	// Apply --env filter (prune config in place before scanning).
+	// Apply --env filter (supports comma-separated list of env names).
 	if flagEnv != "" {
-		cfg = filterByEnv(cfg, flagEnv)
-		if len(cfg.Environments) == 0 {
-			return fmt.Errorf("no environment named %q in config", flagEnv)
+		envNames := parseCommaSeparated(flagEnv)
+		filtered, ferr := filterByEnvs(cfg, envNames)
+		if ferr != nil {
+			return ferr
 		}
+		cfg = filtered
 	}
 
 	// Apply --context filter.
@@ -622,6 +624,32 @@ func filterByEnv(cfg *config.Config, name string) *config.Config {
 		}
 	}
 	return &out
+}
+
+// filterByEnvs returns a copy of cfg retaining only environments whose names
+// are in the provided list. Returns an error listing any names not found.
+func filterByEnvs(cfg *config.Config, names []string) (*config.Config, error) {
+	out := *cfg
+	out.Environments = nil
+	remaining := make(map[string]bool, len(names))
+	for _, n := range names {
+		remaining[n] = true
+	}
+	for _, e := range cfg.Environments {
+		if remaining[e.Name] {
+			out.Environments = append(out.Environments, e)
+			delete(remaining, e.Name)
+		}
+	}
+	if len(remaining) > 0 {
+		missing := make([]string, 0, len(remaining))
+		for n := range remaining {
+			missing = append(missing, fmt.Sprintf("%q", n))
+		}
+		sort.Strings(missing)
+		return nil, fmt.Errorf("environment(s) not found in config: %s", strings.Join(missing, ", "))
+	}
+	return &out, nil
 }
 
 // filterByContext returns a copy of cfg retaining only clusters matching ctx.

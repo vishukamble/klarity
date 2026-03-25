@@ -2,16 +2,19 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/vishukamble/klarity/pkg/config"
 	"github.com/vishukamble/klarity/pkg/kube"
+	"github.com/vishukamble/klarity/pkg/output"
 )
 
 var initCmd = &cobra.Command{
@@ -113,7 +116,8 @@ func promptDefaultEnv(cfg *config.Config) (updated bool, err error) {
 	total := totalConfigClusters(cfg)
 	fmt.Printf("\nYou have %d clusters configured. Running a full scan will take several minutes.\n\n", total)
 
-	// Build select options: one per environment + a "no default" option.
+	// Build select options: real envs first, "no default" last.
+	// Cursor starts on the first real environment (index 0), not "no default".
 	const noDefault = ""
 	opts := make([]huh.Option[string], 0, len(cfg.Environments)+1)
 	for _, env := range cfg.Environments {
@@ -130,7 +134,11 @@ func promptDefaultEnv(cfg *config.Config) (updated bool, err error) {
 	}
 	opts = append(opts, huh.NewOption("No default — scan everything", noDefault))
 
-	var chosen string
+	// Default cursor on first real environment, not "No default".
+	chosen := noDefault
+	if len(cfg.Environments) > 0 {
+		chosen = cfg.Environments[0].Name
+	}
 	sel := huh.NewSelect[string]().
 		Title("Would you like to set a default environment?\n  (klarity will scan this by default, use --env to scan others)").
 		Options(opts...).
@@ -165,22 +173,15 @@ func totalConfigClusters(cfg *config.Config) int {
 //	Phase 4 — Final summary and save confirmation.
 func runNewWizard(detected config.DetectedEnvs, allContexts []string, defaults *config.Config) (*config.Config, error) {
 	// ── Phase 1: Display proposed groupings ─────────────────────────────
+	noColor := !term.IsTerminal(int(os.Stdout.Fd()))
 	printBar()
 	fmt.Println("Proposed groupings")
 	printBar()
 
-	for _, label := range detected.Order {
-		clusters := detected.Envs[label]
-		tier := config.InferTier(label)
-		tierStr := "standard"
-		if tier == config.TierCritical {
-			tierStr = "critical"
-		}
-		fmt.Printf("  %-25s (%s)   %d cluster", label, tierStr, len(clusters))
-		if len(clusters) != 1 {
-			fmt.Print("s")
-		}
-		fmt.Println()
+	if len(detected.Order) > 0 {
+		// Build synthetic environments for table rendering.
+		envs := detectedToEnvs(detected)
+		fmt.Println(output.RenderEnvTable(envs, noColor))
 	}
 
 	if len(detected.Unmatched) > 0 {
@@ -352,22 +353,8 @@ func runNewWizard(detected config.DetectedEnvs, allContexts []string, defaults *
 	printBar()
 	fmt.Println("Config summary")
 	printBar()
-	for _, label := range order {
-		clusters := selected[label]
-		if len(clusters) == 0 {
-			continue
-		}
-		tier := config.InferTier(label)
-		tierStr := "standard"
-		if tier == config.TierCritical {
-			tierStr = "critical"
-		}
-		fmt.Printf("  %-25s (%s)   %d cluster", label, tierStr, len(clusters))
-		if len(clusters) != 1 {
-			fmt.Print("s")
-		}
-		fmt.Println()
-	}
+	summaryEnvs := selectedToEnvs(selected, order)
+	fmt.Println(output.RenderEnvTable(summaryEnvs, noColor))
 	fmt.Printf("Namespaces: all (excluding %s)\n", strings.Join(defaults.Settings.DefaultNsExclude, ", "))
 	printBar()
 
@@ -565,6 +552,52 @@ func buildEnvironmentsFromInput(names []string, assignments map[string][]string)
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+// detectedToEnvs converts a DetectedEnvs (from auto-detection) into a slice of
+// config.Environment for rendering with output.RenderEnvTable. Clusters within
+// each env are represented by minimal Cluster stubs (Context only).
+func detectedToEnvs(detected config.DetectedEnvs) []config.Environment {
+	envs := make([]config.Environment, 0, len(detected.Order))
+	for _, label := range detected.Order {
+		ctxNames := detected.Envs[label]
+		env := config.Environment{
+			Name: label,
+			Tier: config.InferTier(label),
+		}
+		for _, ctx := range ctxNames {
+			env.Clusters = append(env.Clusters, config.Cluster{
+				Context:    ctx,
+				Namespaces: config.NamespaceFilter{Mode: config.NamespaceModeAll},
+			})
+		}
+		envs = append(envs, env)
+	}
+	return envs
+}
+
+// selectedToEnvs converts the working selected map (post Phase 2) into a slice
+// of config.Environment for rendering with output.RenderEnvTable.
+func selectedToEnvs(selected map[string][]string, order []string) []config.Environment {
+	envs := make([]config.Environment, 0, len(order))
+	for _, label := range order {
+		ctxNames := selected[label]
+		if len(ctxNames) == 0 {
+			continue
+		}
+		env := config.Environment{
+			Name: label,
+			Tier: config.InferTier(label),
+		}
+		for _, ctx := range ctxNames {
+			env.Clusters = append(env.Clusters, config.Cluster{
+				Context:    ctx,
+				Namespaces: config.NamespaceFilter{Mode: config.NamespaceModeAll},
+			})
+		}
+		envs = append(envs, env)
+	}
+	return envs
+}
 
 // sortStrings is a simple insertion sort — avoids importing sort just for this.
 func sortStrings(ss []string) {
