@@ -117,26 +117,50 @@ func DefaultKubeconfigPath() string {
 	return filepath.Join(home, ".kube", "config")
 }
 
+// defaultQPS and defaultBurst are the rate-limit values applied whenever
+// explicit values are not provided. These are 10× the client-go defaults
+// (QPS=5, Burst=10), sized for parallel namespace scanning.
+const (
+	defaultQPS   float32 = 50
+	defaultBurst int     = 100
+)
+
 // BuildClientset creates a *kubernetes.Clientset for the given kubeconfig
-// context. Pass an empty kubeconfigPath to use DefaultKubeconfigPath().
+// context, using the package defaults (QPS=50, Burst=100).
+// Pass an empty kubeconfigPath to use DefaultKubeconfigPath().
 //
 // This is the production ClientsetBuilder. Tests should use a fake builder
 // instead of calling this function.
 func BuildClientset(kubeconfigPath, contextName string) (kubernetes.Interface, error) {
+	return BuildClientsetWithRateLimit(kubeconfigPath, contextName, 0, 0)
+}
+
+// BuildClientsetWithRateLimit creates a *kubernetes.Clientset with configurable
+// client-side rate limits. Pass qps=0 or burst=0 to use the defaults (50/100).
+// cmd/root.go calls this with values from cfg.Settings.APIQps / APIBurst so
+// users can tune the limiter in ~/.klarityconfig.yaml.
+func BuildClientsetWithRateLimit(kubeconfigPath, contextName string, qps float32, burst int) (kubernetes.Interface, error) {
 	if kubeconfigPath == "" {
 		kubeconfigPath = DefaultKubeconfigPath()
 	}
+	if qps <= 0 {
+		qps = defaultQPS
+	}
+	if burst <= 0 {
+		burst = defaultBurst
+	}
 
 	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath}
-	overrides := &clientcmd.ConfigOverrides{
-		CurrentContext: contextName,
-	}
+	overrides := &clientcmd.ConfigOverrides{CurrentContext: contextName}
 	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
 
 	restConfig, err := clientConfig.ClientConfig()
 	if err != nil {
 		return nil, fmt.Errorf("context %q: building REST config: %w", contextName, err)
 	}
+
+	restConfig.QPS = qps
+	restConfig.Burst = burst
 
 	cs, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
