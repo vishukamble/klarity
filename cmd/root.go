@@ -23,7 +23,6 @@ import (
 	"github.com/vishukamble/klarity/pkg/diagnosis"
 	"github.com/vishukamble/klarity/pkg/kube"
 	"github.com/vishukamble/klarity/pkg/logs"
-	"github.com/vishukamble/klarity/pkg/notifications"
 	"github.com/vishukamble/klarity/pkg/output"
 )
 
@@ -45,7 +44,7 @@ var (
 // ── Root command ──────────────────────────────────────────────────────────────
 
 // Version is the CLI version string, set here for --version flag.
-const Version = "1.0.8"
+const Version = "1.0.9"
 
 var rootCmd = &cobra.Command{
 	Use:     "klarity",
@@ -185,23 +184,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	categorySet := parseCategoryFilter(flagCategory)
 
 	// Build the canonical classifier list once.
-	classifiers := []diagnosis.Classifier{
-		diagnosis.NodeClassifier{},
-		diagnosis.OOMClassifier{},
-		diagnosis.ImagePullClassifier{},
-		diagnosis.CrashLoopClassifier{},
-		diagnosis.PendingClassifier{},
-		diagnosis.HPAClassifier{},
-		diagnosis.NoEndpointsClassifier{},
-		diagnosis.QuotaClassifier{},
-		diagnosis.PVCClassifier{},
-		diagnosis.DaemonSetClassifier{},
-		diagnosis.StatefulSetClassifier{},
-		diagnosis.JobClassifier{},
-		diagnosis.CronJobClassifier{},
-		diagnosis.ContainerErrorClassifier{},
-		diagnosis.EventClassifier{},
-	}
+	classifiers := buildClassifiers()
 
 	cachePath, _ := cache.DefaultPath()
 	logPath, _ := cache.LogPath()
@@ -276,9 +259,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 				output.RenderReport(os.Stdout, r.findings, cfg, scanTime, r.errs)
 			}
 
-			// Post to Slack if configured.
-			postToSlack(cfg, r.findings, scanTime)
-			return nil
+					return nil
 		}
 	}
 
@@ -286,6 +267,28 @@ func runScan(cmd *cobra.Command, args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	return doScan(ctx, cfg, classifiers, categorySet, nsInclude, nsExclude, interval, cachePath, logPath)
+}
+
+// buildClassifiers returns the canonical set of classifiers used by all scan
+// paths (root scan, slack send, etc.).
+func buildClassifiers() []diagnosis.Classifier {
+	return []diagnosis.Classifier{
+		diagnosis.NodeClassifier{},
+		diagnosis.OOMClassifier{},
+		diagnosis.ImagePullClassifier{},
+		diagnosis.CrashLoopClassifier{},
+		diagnosis.PendingClassifier{},
+		diagnosis.HPAClassifier{},
+		diagnosis.NoEndpointsClassifier{},
+		diagnosis.QuotaClassifier{},
+		diagnosis.PVCClassifier{},
+		diagnosis.DaemonSetClassifier{},
+		diagnosis.StatefulSetClassifier{},
+		diagnosis.JobClassifier{},
+		diagnosis.CronJobClassifier{},
+		diagnosis.ContainerErrorClassifier{},
+		diagnosis.EventClassifier{},
+	}
 }
 
 // gatherFindings runs the parallel scan across all clusters and returns the
@@ -358,21 +361,6 @@ func buildLogEntry(findings []diagnosis.Finding, t time.Time) cache.LogEntry {
 	}
 }
 
-// postToSlack sends a Slack notification if Slack is configured.
-func postToSlack(cfg *config.Config, findings []diagnosis.Finding, t time.Time) {
-	if !cfg.Notifications.Slack.Enabled {
-		return
-	}
-	meta := notifications.ScanMeta{
-		Timestamp:    t,
-		EnvCount:     len(cfg.Environments),
-		ClusterCount: countConfigClusters(cfg),
-	}
-	if err := notifications.SendSummary(notifications.DefaultHTTPClient, cfg.Notifications.Slack, findings, meta); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠ Slack notification failed: %v\n", err)
-	}
-}
-
 // doScan executes one full scan cycle, writes cache + log, and renders the result.
 func doScan(
 	ctx context.Context,
@@ -415,9 +403,6 @@ func doScan(
 	default:
 		output.RenderReport(os.Stdout, allFindings, cfg, startTime, scanErrors)
 	}
-
-	// Post to Slack if configured.
-	postToSlack(cfg, allFindings, startTime)
 
 	return nil
 }

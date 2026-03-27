@@ -93,8 +93,6 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 		if cfg.Notifications.Slack.Mode == config.SlackModeBotToken && cfg.Notifications.Slack.Channel != "" {
 			fmt.Printf("    channel:        %s\n", cfg.Notifications.Slack.Channel)
 		}
-		fmt.Printf("    on_issues_only: %v\n", cfg.Notifications.Slack.OnIssuesOnly)
-		fmt.Printf("    min_severity:   %s\n", cfg.Notifications.Slack.MinSeverity)
 	}
 
 	fmt.Printf("\nEnvironments (%d):\n", len(cfg.Environments))

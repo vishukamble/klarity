@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -100,57 +101,75 @@ func classifySlackError(statusCode int, body string) *SlackError {
 
 // ── Message formatting ───────────────────────────────────────────────────────
 
-// FormatSummary builds a Slack Block Kit message from scan findings.
+// FormatSummary builds a Slack Block Kit message from scan findings, grouped
+// by environment → cluster → category.
 func FormatSummary(findings []diagnosis.Finding, meta ScanMeta) slackMessage {
-	header := fmt.Sprintf("*klarity scan — %s*", meta.Timestamp.Format("2006-01-02 15:04:05 MST"))
+	timestamp := meta.Timestamp.Format("2006-01-02 15:04:05 MST")
 
-	// Count findings per environment.
+	// ── Per-env summary ──────────────────────────────────────────────────
 	envCounts := make(map[string]int)
 	for _, f := range findings {
 		envCounts[f.EnvName]++
 	}
-
-	var sections []string
-	for env, count := range envCounts {
-		sections = append(sections, fmt.Sprintf("• *%s*: %d issue(s)", env, count))
+	var envNames []string
+	for e := range envCounts {
+		envNames = append(envNames, e)
+	}
+	sort.Strings(envNames)
+	var envLines []string
+	for _, e := range envNames {
+		envLines = append(envLines, fmt.Sprintf("• *%s*: %d issue(s)", e, envCounts[e]))
 	}
 
-	// Top 5 findings.
-	limit := 5
-	if len(findings) < limit {
-		limit = len(findings)
+	// ── Group findings by (env, cluster, category) ───────────────────────
+	type catKey struct {
+		env, cluster string
+		cat          diagnosis.Category
 	}
-	var items []string
-	for _, f := range findings[:limit] {
-		resource := f.PodName
-		if resource == "" {
-			resource = "-"
+	catGroups := make(map[catKey][]diagnosis.Finding)
+	var catOrder []catKey
+	for _, f := range findings {
+		k := catKey{f.EnvName, f.ClusterCtx, f.Category}
+		if _, ok := catGroups[k]; !ok {
+			catOrder = append(catOrder, k)
 		}
-		items = append(items, fmt.Sprintf("`%s/%s` %s", f.Namespace, resource, f.OneLiner))
-	}
-	if len(findings) > 5 {
-		items = append(items, fmt.Sprintf("_…and %d more_", len(findings)-5))
+		catGroups[k] = append(catGroups[k], f)
 	}
 
 	footer := fmt.Sprintf("%d issues found across %d clusters", len(findings), meta.ClusterCount)
 
-	// Build blocks.
+	// ── Build blocks ──────────────────────────────────────────────────────
 	blocks := []slackBlock{
 		{Type: "header", Text: &slackText{Type: "plain_text", Text: "klarity scan results"}},
-		{Type: "section", Text: &slackText{Type: "mrkdwn", Text: header}},
+		{Type: "section", Text: &slackText{Type: "mrkdwn", Text: fmt.Sprintf("*klarity scan — %s*", timestamp)}},
 	}
 
-	if len(sections) > 0 {
+	if len(envLines) > 0 {
 		blocks = append(blocks, slackBlock{
 			Type: "section",
-			Text: &slackText{Type: "mrkdwn", Text: strings.Join(sections, "\n")},
+			Text: &slackText{Type: "mrkdwn", Text: strings.Join(envLines, "\n")},
 		})
 	}
 
-	if len(items) > 0 {
+	// One section block per category per cluster.
+	for _, k := range catOrder {
+		fs := catGroups[k]
+		var lines []string
+		for _, f := range fs {
+			resource := f.PodName
+			if resource == "" {
+				resource = "-"
+			}
+			lines = append(lines, fmt.Sprintf("`[%s] %s` — %s", f.Namespace, resource, f.OneLiner))
+		}
+		title := fmt.Sprintf("*%s / %s — %s*", k.env, k.cluster, string(k.cat))
+		text := title + "\n" + strings.Join(lines, "\n")
+		if len(text) > 2900 {
+			text = text[:2900] + "\n_…truncated_"
+		}
 		blocks = append(blocks, slackBlock{
 			Type: "section",
-			Text: &slackText{Type: "mrkdwn", Text: strings.Join(items, "\n")},
+			Text: &slackText{Type: "mrkdwn", Text: text},
 		})
 	}
 
@@ -249,45 +268,12 @@ func TestConnection(client HTTPClient, cfg config.SlackConfig) error {
 	return postMessage(client, cfg, FormatTestMessage())
 }
 
-// SendSummary posts a scan summary to Slack. Respects on_issues_only and
-// min_severity settings. Returns nil without posting if conditions aren't met.
+// SendSummary posts a scan summary to Slack. Returns nil without posting if
+// Slack is disabled.
 func SendSummary(client HTTPClient, cfg config.SlackConfig, findings []diagnosis.Finding, meta ScanMeta) error {
 	if !cfg.Enabled {
 		return nil
 	}
-
-	// Filter by min_severity.
-	filtered := filterBySeverity(findings, cfg.MinSeverity)
-
-	// Respect on_issues_only.
-	if cfg.OnIssuesOnly && len(filtered) == 0 {
-		return nil
-	}
-
-	msg := FormatSummary(filtered, meta)
+	msg := FormatSummary(findings, meta)
 	return postMessage(client, cfg, msg)
-}
-
-// filterBySeverity returns findings at or above the given severity threshold.
-func filterBySeverity(findings []diagnosis.Finding, minSev string) []diagnosis.Finding {
-	switch minSev {
-	case config.SlackSeverityCritical:
-		var out []diagnosis.Finding
-		for _, f := range findings {
-			if f.Severity == diagnosis.SeverityCritical {
-				out = append(out, f)
-			}
-		}
-		return out
-	case config.SlackSeverityHigh:
-		var out []diagnosis.Finding
-		for _, f := range findings {
-			if f.Severity == diagnosis.SeverityCritical || f.Severity == diagnosis.SeverityWarning {
-				out = append(out, f)
-			}
-		}
-		return out
-	default: // "all" or ""
-		return findings
-	}
 }

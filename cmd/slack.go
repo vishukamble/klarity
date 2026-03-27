@@ -1,15 +1,24 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
 	"github.com/vishukamble/klarity/pkg/config"
 	"github.com/vishukamble/klarity/pkg/notifications"
+)
+
+var (
+	flagSlackEnv string
+	flagSlackAll bool
 )
 
 func init() {
@@ -24,8 +33,21 @@ func init() {
 		RunE:  runSlackSetup,
 	})
 
+	sendCmd := &cobra.Command{
+		Use:   "send",
+		Short: "Scan and post results to Slack immediately",
+		RunE:  runSlackSend,
+	}
+	sendCmd.Flags().StringVar(&flagSlackEnv, "env", "",
+		"Limit scan to environment(s), comma-separated (e.g. prod-intel,prod-ravn)")
+	sendCmd.Flags().BoolVar(&flagSlackAll, "all", false,
+		"Scan all configured environments (overrides default critical-tier-only behaviour)")
+	slackCmd.AddCommand(sendCmd)
+
 	rootCmd.AddCommand(slackCmd)
 }
+
+// ── setup ────────────────────────────────────────────────────────────────────
 
 func runSlackSetup(_ *cobra.Command, _ []string) error {
 	cfgPath, err := config.ConfigPath()
@@ -33,14 +55,13 @@ func runSlackSetup(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Load existing config or create a minimal one for the slack section.
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "No existing config found. Run 'klarity init' first to set up environments.")
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	// ── 1. Ask for mode ──────────────────────────────────────────────────
+	// ── Step 1: webhook or bot token? ────────────────────────────────────
 	var mode string
 	modeSelect := huh.NewSelect[string]().
 		Title("How do you want to connect to Slack?").
@@ -56,10 +77,8 @@ func runSlackSetup(_ *cobra.Command, _ []string) error {
 
 	var slackCfg config.SlackConfig
 	slackCfg.Mode = mode
-	slackCfg.OnIssuesOnly = true
-	slackCfg.MinSeverity = config.SlackSeverityAll
 
-	// ── 2. Collect credentials ───────────────────────────────────────────
+	// ── Step 2: credentials ───────────────────────────────────────────────
 	switch mode {
 	case config.SlackModeWebhook:
 		var webhookURL string
@@ -110,7 +129,7 @@ func runSlackSetup(_ *cobra.Command, _ []string) error {
 		slackCfg.Channel = channel
 	}
 
-	// ── 3. Test connection ───────────────────────────────────────────────
+	// ── Step 3: test connection ───────────────────────────────────────────
 	fmt.Println("\nSending test message...")
 	if err := notifications.TestConnection(notifications.DefaultHTTPClient, slackCfg); err != nil {
 		fmt.Fprintf(os.Stderr, "\n❌ Slack test failed:\n   %v\n", err)
@@ -118,39 +137,93 @@ func runSlackSetup(_ *cobra.Command, _ []string) error {
 	}
 	fmt.Println("✅ Test message sent successfully!")
 
-	// ── 4. Ask severity filter ───────────────────────────────────────────
-	var minSev string
-	sevSelect := huh.NewSelect[string]().
-		Title("When should klarity post to Slack?").
-		Options(
-			huh.NewOption("All issues (any severity)", config.SlackSeverityAll),
-			huh.NewOption("High+ only (Warning and Critical)", config.SlackSeverityHigh),
-			huh.NewOption("Critical only", config.SlackSeverityCritical),
-		).
-		Value(&minSev)
-	if err := huh.NewForm(huh.NewGroup(sevSelect)).Run(); err != nil {
-		return fmt.Errorf("prompt error: %w", err)
-	}
-	slackCfg.MinSeverity = minSev
-
-	var onIssuesOnly bool
-	confirm := huh.NewConfirm().
-		Title("Only post when there are findings? (skip quiet scans)").
-		Value(&onIssuesOnly)
-	if err := huh.NewForm(huh.NewGroup(confirm)).Run(); err != nil {
-		return fmt.Errorf("prompt error: %w", err)
-	}
-	slackCfg.OnIssuesOnly = onIssuesOnly
+	// ── Step 4: save ─────────────────────────────────────────────────────
 	slackCfg.Enabled = true
-
-	// ── 5. Save ──────────────────────────────────────────────────────────
 	cfg.Notifications.Slack = slackCfg
 	if err := config.Save(cfg, cfgPath); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
 
 	fmt.Printf("\n✅ Slack notifications saved to %s\n", cfgPath)
-	fmt.Println("Scan summaries will be posted after each scan. Disable with:")
-	fmt.Println("  notifications.slack.enabled: false  in your config file")
+	fmt.Println("Use 'klarity slack send' to post a report manually.")
+	return nil
+}
+
+// ── send ─────────────────────────────────────────────────────────────────────
+
+// filterByCriticalTier returns a config copy containing only critical-tier environments.
+func filterByCriticalTier(cfg *config.Config) *config.Config {
+	out := *cfg
+	out.Environments = nil
+	for _, env := range cfg.Environments {
+		if env.Tier == config.TierCritical {
+			out.Environments = append(out.Environments, env)
+		}
+	}
+	return &out
+}
+
+func runSlackSend(_ *cobra.Command, _ []string) error {
+	cfgPath, err := config.ConfigPath()
+	if err != nil {
+		return err
+	}
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	if !cfg.Notifications.Slack.Enabled {
+		fmt.Fprintln(os.Stderr, "Slack is not configured. Run 'klarity slack setup' first.")
+		return nil
+	}
+
+	// Determine which environments to scan.
+	switch {
+	case flagSlackEnv != "":
+		names := parseCommaSeparated(flagSlackEnv)
+		filtered, ferr := filterByEnvs(cfg, names)
+		if ferr != nil {
+			return ferr
+		}
+		cfg = filtered
+	case flagSlackAll:
+		// use full cfg as-is
+	default:
+		// default: critical-tier only
+		cfg = filterByCriticalTier(cfg)
+		if len(cfg.Environments) == 0 {
+			fmt.Fprintln(os.Stderr, "No critical-tier environments found. Use --all or --env to specify environments.")
+			return nil
+		}
+	}
+
+	fmt.Printf("Scanning %d environment(s) for Slack report...\n", len(cfg.Environments))
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	findings, _ := gatherFindings(ctx, cfg, buildClassifiers(), nil, nil)
+
+	if len(findings) == 0 {
+		fmt.Println("✅ No issues found — nothing to send")
+		return nil
+	}
+
+	meta := notifications.ScanMeta{
+		Timestamp:    time.Now(),
+		EnvCount:     len(cfg.Environments),
+		ClusterCount: countConfigClusters(cfg),
+	}
+
+	if err := notifications.SendSummary(notifications.DefaultHTTPClient, cfg.Notifications.Slack, findings, meta); err != nil {
+		fmt.Fprintf(os.Stderr, "❌ Slack post failed: %v\n", err)
+		fmt.Fprintln(os.Stderr, "   Check your token/webhook URL or re-run 'klarity slack setup'.")
+		return err
+	}
+
+	envCount := len(cfg.Environments)
+	fmt.Printf("✅ Posted to Slack — %d issues across %d environment(s)\n", len(findings), envCount)
 	return nil
 }

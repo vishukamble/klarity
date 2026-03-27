@@ -53,6 +53,8 @@ type Settings struct {
 	ExcludeCompletedJobs bool     `yaml:"exclude_completed_jobs"`
 	DefaultNsExclude     []string `yaml:"default_ns_exclude"`
 	DefaultEnv           string   `yaml:"default_env,omitempty"`
+	APIQps               float32  `yaml:"api_qps,omitempty"`   // default 50
+	APIBurst             int      `yaml:"api_burst,omitempty"` // default 100
 }
 
 // Slack auth modes.
@@ -61,22 +63,13 @@ const (
 	SlackModeBotToken = "bot_token"
 )
 
-// Slack min_severity values.
-const (
-	SlackSeverityAll      = "all"
-	SlackSeverityHigh     = "high"     // Warning + Critical
-	SlackSeverityCritical = "critical" // Critical only
-)
-
 // SlackConfig holds Slack notification settings.
 type SlackConfig struct {
-	Enabled      bool   `yaml:"enabled"`
-	Mode         string `yaml:"mode"`                    // webhook | bot_token
-	WebhookURL   string `yaml:"webhook_url,omitempty"`   // if mode: webhook
-	BotToken     string `yaml:"bot_token,omitempty"`     // if mode: bot_token
-	Channel      string `yaml:"channel,omitempty"`       // if mode: bot_token
-	OnIssuesOnly bool   `yaml:"on_issues_only"`          // only post if findings exist (default true)
-	MinSeverity  string `yaml:"min_severity"`            // all | high | critical
+	Enabled    bool   `yaml:"enabled"`
+	Mode       string `yaml:"mode"`                  // webhook | bot_token
+	WebhookURL string `yaml:"webhook_url,omitempty"` // if mode: webhook
+	BotToken   string `yaml:"bot_token,omitempty"`   // if mode: bot_token
+	Channel    string `yaml:"channel,omitempty"`     // if mode: bot_token
 }
 
 // NotificationsConfig holds all notification channel settings.
@@ -102,6 +95,8 @@ func DefaultConfig() *Config {
 			ParallelNamespaces:   10,
 			ScanIntervalSeconds:  300,
 			ExcludeCompletedJobs: true,
+			APIQps:               50,
+			APIBurst:             100,
 			DefaultNsExclude: []string{
 				"kube-system",
 				"kube-public",
@@ -248,13 +243,6 @@ func validateSlackConfig(s SlackConfig) error {
 		}
 	default:
 		return fmt.Errorf("notifications.slack: mode must be %q or %q, got %q", SlackModeWebhook, SlackModeBotToken, s.Mode)
-	}
-	switch s.MinSeverity {
-	case SlackSeverityAll, SlackSeverityHigh, SlackSeverityCritical, "":
-		// valid
-	default:
-		return fmt.Errorf("notifications.slack: min_severity must be %q, %q, or %q, got %q",
-			SlackSeverityAll, SlackSeverityHigh, SlackSeverityCritical, s.MinSeverity)
 	}
 	return nil
 }

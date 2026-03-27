@@ -5,7 +5,7 @@
 ## Current State
 
 **Last updated:** 2026-03-26
-**Last session focus:** init --reset guard, config show default_env, --no-default flag (v1.0.9)
+**Last session focus:** Slack refactor — manual send only, simplified setup, grouped FormatSummary (v1.0.9)
 **Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass, 276 test cases)
 
 ## Project Initialization
@@ -127,6 +127,17 @@ Also added:
 - [x] **`klarity init --reset` guard** — `cmd/init.go`: `--reset` bool flag added; if config already exists and `--reset` is not passed, prints "Config already exists … Run 'klarity init --reset' to overwrite it." and returns nil. Guard runs before kubeconfig load. (2026-03-26)
 - [x] **`--no-default` flag** — `cmd/root.go`: `--no-default` bool flag; when set, `default_env` in config is ignored (notice printed to stderr), `filteredScan=true` (bypasses cache). 1 new test `TestNoDefaultFlag`. (2026-03-26)
 - [x] **Version bump** — `1.0.9`. (2026-03-26)
+
+## Session Additions (2026-03-26, Slack refactor)
+
+- [x] **Remove auto-post Slack** — `cmd/root.go`: removed `postToSlack()` helper and both call sites (cache-hit path + `doScan`); removed `notifications` import from root.go. (2026-03-26)
+- [x] **`buildClassifiers()` helper** — `cmd/root.go`: extracted classifier list into `buildClassifiers()` so both the root scan and `klarity slack send` can call it without duplication. (2026-03-26)
+- [x] **Remove severity filtering** — `pkg/config/config.go`: removed `SlackSeverityAll/High/Critical` constants; removed `OnIssuesOnly` and `MinSeverity` fields from `SlackConfig`; removed `MinSeverity` validation from `validateSlackConfig`. (2026-03-26)
+- [x] **Simplify `SendSummary`** — `pkg/notifications/slack.go`: removed `filterBySeverity()` and `on_issues_only` gating; `SendSummary` posts all findings when enabled. (2026-03-26)
+- [x] **Rewrite `FormatSummary`** — `pkg/notifications/slack.go`: findings now grouped by env → cluster → category; one section block per category per cluster; `[namespace] pod — one-liner` format per finding; per-env counts sorted alphabetically. (2026-03-26)
+- [x] **Simplify `klarity slack setup`** — `cmd/slack.go`: removed severity and on_issues_only steps; now 4 steps only: mode → credentials → test connection → save. (2026-03-26)
+- [x] **`klarity slack send`** — `cmd/slack.go`: new subcommand; default = critical-tier envs only; `--env` = named envs; `--all` = everything; calls `gatherFindings` + `SendSummary`; prints "No issues found" if empty. `filterByCriticalTier()` helper added. (2026-03-26)
+- [x] **Updated tests** — `pkg/notifications/slack_test.go`: removed `TestFilterBySeverity`, `TestSendSummary_MinSeverityFilter`, `TestSendSummary_OnIssuesOnly_NoFindings`; updated `FormatSummary` tests for new grouped format; added `TestSendSummary_PostsWithNoFindings`, `TestSendSummary_AllFindingsPosted`. `cmd/root_test.go`: added `TestSlackSendFiltersCriticalByDefault`. (2026-03-26)
 
 ## Known Issues / Blockers
 

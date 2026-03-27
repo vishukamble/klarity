@@ -3,6 +3,7 @@ package notifications
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -144,9 +145,10 @@ func TestFormatSummary_EnvCounts(t *testing.T) {
 	}
 }
 
-func TestFormatSummary_TopFindings(t *testing.T) {
+func TestFormatSummary_FindingBlocks(t *testing.T) {
 	msg := FormatSummary(sampleFindings(), sampleMeta())
 
+	// Each finding should appear in a block using [namespace] pod format.
 	var findingsBlock string
 	for _, b := range msg.Blocks {
 		if b.Text != nil && strings.Contains(b.Text.Text, "OOMKilled") {
@@ -155,36 +157,41 @@ func TestFormatSummary_TopFindings(t *testing.T) {
 		}
 	}
 	if findingsBlock == "" {
-		t.Fatal("expected a block with top findings")
+		t.Fatal("expected a block containing OOMKilled finding")
 	}
-	if !strings.Contains(findingsBlock, "payments/pay-api-7f8d") {
-		t.Errorf("should show namespace/pod, got %q", findingsBlock)
+	if !strings.Contains(findingsBlock, "[payments]") {
+		t.Errorf("should show [namespace], got %q", findingsBlock)
+	}
+	if !strings.Contains(findingsBlock, "pay-api-7f8d") {
+		t.Errorf("should show pod name, got %q", findingsBlock)
 	}
 }
 
-func TestFormatSummary_MoreThan5(t *testing.T) {
+func TestFormatSummary_AllFindingsIncluded(t *testing.T) {
 	findings := make([]diagnosis.Finding, 8)
 	for i := range findings {
 		findings[i] = diagnosis.Finding{
-			Category:  diagnosis.CategoryOOMKilled,
-			Severity:  diagnosis.SeverityCritical,
-			EnvName:   "prod",
-			Namespace: "ns",
-			PodName:   "pod",
-			OneLiner:  "oom",
+			Category:   diagnosis.CategoryOOMKilled,
+			Severity:   diagnosis.SeverityCritical,
+			EnvName:    "prod",
+			ClusterCtx: "prod-ctx",
+			Namespace:  "ns",
+			PodName:    fmt.Sprintf("pod-%d", i),
+			OneLiner:   "oom",
 		}
 	}
 	msg := FormatSummary(findings, sampleMeta())
 
-	found := false
+	// All 8 findings should appear in a single category block (same env/cluster/category).
+	var categoryBlock string
 	for _, b := range msg.Blocks {
-		if b.Text != nil && strings.Contains(b.Text.Text, "3 more") {
-			found = true
+		if b.Text != nil && strings.Contains(b.Text.Text, "pod-7") {
+			categoryBlock = b.Text.Text
 			break
 		}
 	}
-	if !found {
-		t.Error("expected '…and 3 more' when findings > 5")
+	if categoryBlock == "" {
+		t.Error("expected all 8 findings in a block, pod-7 not found")
 	}
 }
 
@@ -352,30 +359,29 @@ func TestSendSummary_Disabled(t *testing.T) {
 	}
 }
 
-func TestSendSummary_OnIssuesOnly_NoFindings(t *testing.T) {
+func TestSendSummary_PostsWithNoFindings(t *testing.T) {
 	mock := &mockHTTPClient{statusCode: 200, body: "ok"}
 	cfg := config.SlackConfig{
-		Enabled:      true,
-		Mode:         config.SlackModeWebhook,
-		WebhookURL:   "https://hooks.slack.com/services/T/B/x",
-		OnIssuesOnly: true,
+		Enabled:    true,
+		Mode:       config.SlackModeWebhook,
+		WebhookURL: "https://hooks.slack.com/services/T/B/x",
 	}
+	// SendSummary always posts regardless of findings count.
 	err := SendSummary(mock, cfg, nil, sampleMeta())
 	if err != nil {
 		t.Fatalf("expected nil, got: %v", err)
 	}
-	if mock.captured != nil {
-		t.Error("should not have made HTTP request with no findings and on_issues_only")
+	if mock.captured == nil {
+		t.Error("should have made HTTP request even with no findings")
 	}
 }
 
 func TestSendSummary_PostsWhenFindings(t *testing.T) {
 	mock := &mockHTTPClient{statusCode: 200, body: "ok"}
 	cfg := config.SlackConfig{
-		Enabled:      true,
-		Mode:         config.SlackModeWebhook,
-		WebhookURL:   "https://hooks.slack.com/services/T/B/x",
-		OnIssuesOnly: true,
+		Enabled:    true,
+		Mode:       config.SlackModeWebhook,
+		WebhookURL: "https://hooks.slack.com/services/T/B/x",
 	}
 	err := SendSummary(mock, cfg, sampleFindings(), sampleMeta())
 	if err != nil {
@@ -386,58 +392,29 @@ func TestSendSummary_PostsWhenFindings(t *testing.T) {
 	}
 }
 
-// ── filterBySeverity tests ───────────────────────────────────────────────────
-
-func TestFilterBySeverity(t *testing.T) {
-	findings := sampleFindings() // Critical, Critical, Warning, Info
-
-	tests := []struct {
-		name    string
-		minSev  string
-		wantLen int
-	}{
-		{"all", config.SlackSeverityAll, 4},
-		{"high", config.SlackSeverityHigh, 3},     // 2 Critical + 1 Warning
-		{"critical", config.SlackSeverityCritical, 2}, // 2 Critical
-		{"empty defaults to all", "", 4},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := filterBySeverity(findings, tt.minSev)
-			if len(got) != tt.wantLen {
-				t.Errorf("want %d findings, got %d", tt.wantLen, len(got))
-			}
-		})
-	}
-}
-
-func TestSendSummary_MinSeverityFilter(t *testing.T) {
+func TestSendSummary_AllFindingsPosted(t *testing.T) {
 	mock := &mockHTTPClient{statusCode: 200, body: "ok"}
 	cfg := config.SlackConfig{
-		Enabled:      true,
-		Mode:         config.SlackModeWebhook,
-		WebhookURL:   "https://hooks.slack.com/services/T/B/x",
-		OnIssuesOnly: true,
-		MinSeverity:  config.SlackSeverityCritical,
+		Enabled:    true,
+		Mode:       config.SlackModeWebhook,
+		WebhookURL: "https://hooks.slack.com/services/T/B/x",
 	}
 
-	// sampleFindings has 2 Critical — should post.
+	// All 4 sample findings (Critical, Critical, Warning, Info) should be posted.
 	err := SendSummary(mock, cfg, sampleFindings(), sampleMeta())
 	if err != nil {
 		t.Fatalf("expected nil, got: %v", err)
 	}
 	if mock.captured == nil {
-		t.Fatal("should have posted for critical findings")
+		t.Fatal("should have posted")
 	}
 
-	// Verify the payload only mentions critical findings.
 	var msg slackMessage
 	if err := json.NewDecoder(bytes.NewReader([]byte(mock.capturedBody))).Decode(&msg); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
-	if !strings.Contains(msg.Text, "2 issues") {
-		t.Errorf("payload text should mention 2 issues (critical only), got %q", msg.Text)
+	if !strings.Contains(msg.Text, "4 issues") {
+		t.Errorf("payload text should mention 4 issues, got %q", msg.Text)
 	}
 }
 

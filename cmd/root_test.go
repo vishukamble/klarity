@@ -323,3 +323,43 @@ func TestNoDefaultFlag(t *testing.T) {
 		t.Error("expected filteredScan=true when --no-default is set")
 	}
 }
+
+func TestSlackSendFiltersCriticalByDefault(t *testing.T) {
+	cfg := &config.Config{
+		Version: 1,
+		Settings: config.Settings{
+			ParallelClusters:    1,
+			LogTailLines:        50,
+			ScanIntervalSeconds: 300,
+		},
+		Environments: []config.Environment{
+			{Name: "prod", Tier: config.TierCritical, Clusters: []config.Cluster{
+				{Context: "prod-ctx", Namespaces: config.NamespaceFilter{Mode: config.NamespaceModeAll}},
+			}},
+			{Name: "preprod", Tier: config.TierCritical, Clusters: []config.Cluster{
+				{Context: "preprod-ctx", Namespaces: config.NamespaceFilter{Mode: config.NamespaceModeAll}},
+			}},
+			{Name: "dev", Tier: config.TierStandard, Clusters: []config.Cluster{
+				{Context: "dev-ctx", Namespaces: config.NamespaceFilter{Mode: config.NamespaceModeAll}},
+			}},
+			{Name: "staging", Tier: config.TierStandard, Clusters: []config.Cluster{
+				{Context: "staging-ctx", Namespaces: config.NamespaceFilter{Mode: config.NamespaceModeAll}},
+			}},
+		},
+	}
+
+	filtered := filterByCriticalTier(cfg)
+
+	if len(filtered.Environments) != 2 {
+		t.Errorf("expected 2 critical envs, got %d", len(filtered.Environments))
+	}
+	for _, env := range filtered.Environments {
+		if env.Tier != config.TierCritical {
+			t.Errorf("env %q should be critical, got tier %q", env.Name, env.Tier)
+		}
+	}
+	// Original config should be unchanged.
+	if len(cfg.Environments) != 4 {
+		t.Error("filterByCriticalTier should not mutate original config")
+	}
+}

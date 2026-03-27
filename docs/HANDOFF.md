@@ -20,6 +20,9 @@ All core features are implemented. Next session should focus on polish and harde
 - ✅ `config show` now displays `default_env` when set
 - ✅ `klarity init --reset` flag guards against silent overwrite
 - ✅ `--no-default` flag ignores `default_env` for one-shot full scan (bypasses cache)
+- ✅ Slack refactor: removed auto-post, simplified setup wizard (4 steps, no severity filtering), added `klarity slack send` manual command (`--env`, `--all`, default=critical-tier)
+- ✅ `FormatSummary` rewritten: findings grouped by env→cluster→category, one block per category per cluster
+- ✅ `buildClassifiers()` helper extracted for reuse by slack send
 
 ### Reminder: validation order after each change
 ```
@@ -73,6 +76,21 @@ gatherFindings()
 - CLAUDE.md: classifiers return data, output layer is only formatter; never mutate K8s resources
 
 ## Previous Session Summary
+
+**2026-03-26 — Session 35: Slack refactor — manual send, simplified setup, grouped FormatSummary (v1.0.9)**
+
+| Item | Files | Summary |
+|---|---|---|
+| Remove auto-post | `cmd/root.go` | `postToSlack()` removed; `notifications` import removed; `buildClassifiers()` extracted |
+| Remove severity filtering | `pkg/config/config.go` | `SlackSeverityAll/High/Critical`, `OnIssuesOnly`, `MinSeverity` removed |
+| Simplify `SendSummary` | `pkg/notifications/slack.go` | `filterBySeverity` removed; always posts all findings |
+| Rewrite `FormatSummary` | `pkg/notifications/slack.go` | Grouped env→cluster→category; one block per category; `[ns] pod — one-liner` format |
+| Simplify setup wizard | `cmd/slack.go` | 4 steps only: mode → credentials → test → save |
+| `klarity slack send` | `cmd/slack.go` | New subcommand; `filterByCriticalTier()` for default; `--env`, `--all` flags |
+| Tests | `pkg/notifications/slack_test.go`, `cmd/root_test.go` | Removed severity tests; updated format tests; added `TestSlackSendFiltersCriticalByDefault` |
+| Version bump | `cmd/root.go` | `1.0.9` |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (276 tests)
 
 **2026-03-26 — Session 34: init --reset guard, config show default_env, --no-default flag (v1.0.9)**
 
