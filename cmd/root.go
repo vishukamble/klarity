@@ -12,9 +12,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	klogv2 "k8s.io/klog/v2"
 
 	"github.com/vishukamble/klarity/pkg/cache"
 	"github.com/vishukamble/klarity/pkg/config"
@@ -37,12 +39,13 @@ var (
 	flagWatch     bool
 	flagInterval  int
 	flagHistory   int
+	flagNoDefault bool
 )
 
 // ── Root command ──────────────────────────────────────────────────────────────
 
 // Version is the CLI version string, set here for --version flag.
-const Version = "1.0.7"
+const Version = "1.0.9"
 
 var rootCmd = &cobra.Command{
 	Use:     "klarity",
@@ -59,6 +62,10 @@ terminal tables with one-line error summaries. Never mutates resources.`,
 func init() {
 	// Suppress client-go deprecation warnings (e.g. "v1 Endpoints is deprecated").
 	rest.SetDefaultWarningHandler(rest.NoWarnings{})
+
+	// Silence klog entirely — prevents throttling messages from the rate limiter
+	// (and any other client-go INFO logs) from leaking onto stderr during scans.
+	klogv2.SetLogger(logr.Discard())
 
 	rootCmd.Flags().StringVarP(&flagOutput, "output", "o", "table",
 		"Output format: table (default) | json")
@@ -79,6 +86,8 @@ func init() {
 	rootCmd.Flags().IntVar(&flagHistory, "history", 0,
 		"Show scan history (last N scans; --history alone shows last 10)")
 	rootCmd.Flag("history").NoOptDefVal = "10"
+	rootCmd.Flags().BoolVar(&flagNoDefault, "no-default", false,
+		"Ignore default_env from config and scan all environments")
 }
 
 // Execute is the entry point called from main.go.
@@ -120,9 +129,12 @@ func runScan(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(os.Stderr)
 	}
 
-	// Apply default_env when no explicit scope flags are set.
+	// Apply default_env when no explicit scope flags are set and --no-default not passed.
 	noScopeFlags := flagEnv == "" && flagContext == ""
-	if noScopeFlags && cfg.Settings.DefaultEnv != "" {
+	if flagNoDefault && cfg.Settings.DefaultEnv != "" {
+		fmt.Fprintf(os.Stderr, "ℹ  --no-default: ignoring default_env=%q, scanning all environments\n", cfg.Settings.DefaultEnv)
+	}
+	if noScopeFlags && !flagNoDefault && cfg.Settings.DefaultEnv != "" {
 		showDefaultEnvBanner(cfg.Settings.DefaultEnv)
 		cfg = filterByEnv(cfg, cfg.Settings.DefaultEnv)
 		if len(cfg.Environments) == 0 {
@@ -220,7 +232,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	// ── Single-shot mode: check cache first ───────────────────────────────────
-	filteredScan := flagEnv != "" || flagContext != "" || flagNamespace != ""
+	filteredScan := flagEnv != "" || flagContext != "" || flagNamespace != "" || flagNoDefault
 	if flagOutput != "json" && !filteredScan {
 		cachedData, loadErr := cache.Load(cachePath)
 		if loadErr != nil {
@@ -312,7 +324,8 @@ func gatherFindings(
 				}
 				defer func() { <-sem }()
 
-				cs, err := kube.BuildClientset(kubeconfigPath, cluster.Context)
+				cs, err := kube.BuildClientsetWithRateLimit(kubeconfigPath, cluster.Context,
+					cfg.Settings.APIQps, cfg.Settings.APIBurst)
 				if err != nil {
 					mu.Lock()
 					scanErrors = append(scanErrors, fmt.Sprintf("[%s/%s] %v", env.Name, cluster.Context, err))

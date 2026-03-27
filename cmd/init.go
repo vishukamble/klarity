@@ -17,6 +17,8 @@ import (
 	"github.com/vishukamble/klarity/pkg/output"
 )
 
+var flagReset bool
+
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Interactive setup wizard — creates ~/.klarityconfig.yaml",
@@ -27,10 +29,23 @@ configuration is saved to ~/.klarityconfig.yaml.`,
 }
 
 func init() {
+	initCmd.Flags().BoolVar(&flagReset, "reset", false, "Overwrite existing config (skips the overwrite guard)")
 	rootCmd.AddCommand(initCmd)
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
+	// ── 0. Overwrite guard ───────────────────────────────────────────────
+	if !flagReset {
+		cfgPath, err := config.ConfigPath()
+		if err == nil {
+			if _, statErr := os.Stat(cfgPath); statErr == nil {
+				fmt.Printf("Config already exists at %s\n", cfgPath)
+				fmt.Println("Run 'klarity init --reset' to overwrite it.")
+				return nil
+			}
+		}
+	}
+
 	// ── 1. Load kubeconfig ──────────────────────────────────────────────
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	fmt.Printf("Reading %s... ", loadingRules.GetLoadingPrecedence()[0])

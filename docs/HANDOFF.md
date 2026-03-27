@@ -9,14 +9,17 @@ All core features are implemented. Next session should focus on polish and harde
 ### High priority
 
 - **`klarity uninstall`** — `cmd/uninstall.go` is staged in git but unreviewed; should remove `~/.klarityconfig.yaml`, `~/.klarity_cache`, `~/.klarity.log` with confirmation prompt
-- **`config show` — surface `default_env`** — `cmd/config.go` `config show` doesn't display `settings.default_env` when set; add it to the human-readable output
 - **`klarity env` output test** — `pkg/output/envtable_test.go`: add table-driven tests for `RenderEnvTable` — empty input, single env, critical row colouring (noColor=true path), multi-line context names; the function is currently untested
 
 ### Medium priority
 
-- **`klarity init --reset`** flag — re-run wizard and overwrite existing config; currently `klarity init` on an existing config silently overwrites without warning
-- **`--no-default` flag** — one-shot override: run full scan ignoring `default_env` for this invocation
-- **Version bump** — currently `1.0.7`; bump to `1.1.0` when `klarity uninstall` ships (first new command since initial release)
+- **Version bump** — currently `1.0.9`; bump to `1.1.0` when `klarity uninstall` ships (first new command since initial release)
+
+### Done this session (v1.0.9)
+
+- ✅ `config show` now displays `default_env` when set
+- ✅ `klarity init --reset` flag guards against silent overwrite
+- ✅ `--no-default` flag ignores `default_env` for one-shot full scan (bypasses cache)
 
 ### Reminder: validation order after each change
 ```
@@ -70,6 +73,30 @@ gatherFindings()
 - CLAUDE.md: classifiers return data, output layer is only formatter; never mutate K8s resources
 
 ## Previous Session Summary
+
+**2026-03-26 — Session 34: init --reset guard, config show default_env, --no-default flag (v1.0.9)**
+
+| Item | Files | Summary |
+|---|---|---|
+| `config show default_env` | `cmd/config.go` | Prints `default_env: <value>` in settings block when set |
+| `klarity init --reset` | `cmd/init.go` | `--reset` flag; without it, exits with message if config exists |
+| `--no-default` flag | `cmd/root.go` | Ignores `default_env` for one scan; `filteredScan=true` bypasses cache; notice to stderr |
+| `TestNoDefaultFlag` | `cmd/root_test.go` | Verifies `filteredScan=true` and `filterByEnv` isolation |
+| Version bump | `cmd/root.go` | `1.0.9` |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (276 tests)
+
+**2026-03-26 — Session 33: client-go rate limiter tuning + klog suppression**
+
+| Item | Files | Summary |
+|---|---|---|
+| `BuildClientsetWithRateLimit` | `pkg/kube/client.go` | New function sets `restConfig.QPS`/`Burst`; 0-values fall back to 50/100 constants; `BuildClientset` delegates to it |
+| `api_qps` / `api_burst` settings | `pkg/config/config.go` | `float32`/`int` fields with `omitempty`; defaults 50/100 in `DefaultConfig()` |
+| Wire rate limits in scan loop | `cmd/root.go` | `BuildClientset` → `BuildClientsetWithRateLimit(…, cfg.Settings.APIQps, cfg.Settings.APIBurst)` |
+| Silence klog | `cmd/root.go` | `klogv2.SetLogger(logr.Discard())` in `init()` — eliminates throttling log spam on stderr |
+| Version bump | `cmd/root.go` | `1.0.8` |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (275 tests, unchanged)
 
 **2026-03-25 — Session 32: preprod, klarity env, multi-env --env, init table rendering**
 

@@ -4,9 +4,9 @@
 
 ## Current State
 
-**Last updated:** 2026-03-25
-**Last session focus:** preprod keyword, `klarity env` command, multi-env --env flag, table rendering in init
-**Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass, 275 test cases)
+**Last updated:** 2026-03-26
+**Last session focus:** init --reset guard, config show default_env, --no-default flag (v1.0.9)
+**Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass, 276 test cases)
 
 ## Project Initialization
 
@@ -112,6 +112,21 @@ Also added:
 - [x] **Table rendering in init wizard** — `cmd/init.go`: Phase 1 "Proposed groupings" and Phase 4 "Config summary" now render `output.RenderEnvTable` instead of plain printf lists. Two new helpers: `detectedToEnvs(DetectedEnvs) []config.Environment` and `selectedToEnvs(map[string][]string, order) []config.Environment`. TTY detection via `golang.org/x/term`. (2026-03-25)
 - [x] **Fix: default cursor in promptDefaultEnv** — `cmd/init.go`: `chosen` initialised to `cfg.Environments[0].Name` (first real env) instead of `""`, so "No default — scan everything" is the last option but not the pre-selected cursor position. (2026-03-25)
 - [x] **Multi-env `--env` flag** — `cmd/root.go`: flag changed to `StringVarP` with `-e` shorthand; description updated to "comma-separated"; `filterByEnvs(cfg, []string) (*Config, error)` added — retains all matching envs, returns sorted error listing missing names; `--env` block parses via `parseCommaSeparated` then calls `filterByEnvs`. `filterByEnv` (single-env) kept for `default_env` path. 5 new `TestFilterByEnvs` subtests. (2026-03-25)
+
+## Session Additions (2026-03-26)
+
+- [x] **Rate limiter tuning** — `pkg/kube/client.go`: `BuildClientsetWithRateLimit(kcp, ctx string, qps float32, burst int)` sets `restConfig.QPS` and `restConfig.Burst` before creating the clientset; 0-values fall back to package constants `defaultQPS=50` / `defaultBurst=100`. `BuildClientset` now calls `BuildClientsetWithRateLimit(…, 0, 0)`. (2026-03-26)
+- [x] **Config fields `api_qps` / `api_burst`** — `pkg/config/config.go`: `APIQps float32` and `APIBurst int` added to `Settings` with `omitempty`; defaults `50` / `100` in `DefaultConfig()`. Old configs without these fields get the defaults via the 0-fallback in `BuildClientsetWithRateLimit`. (2026-03-26)
+- [x] **Wire rate limits into scan loop** — `cmd/root.go` `gatherFindings`: `BuildClientset` call replaced with `kube.BuildClientsetWithRateLimit(…, cfg.Settings.APIQps, cfg.Settings.APIBurst)`. (2026-03-26)
+- [x] **Silence klog** — `cmd/root.go` `init()`: `klogv2.SetLogger(logr.Discard())` suppresses all klog output including client-go rate-limiter throttling messages. `go-logr/logr` and `k8s.io/klog/v2` were already indirect dependencies. (2026-03-26)
+- [x] **Version bump** — `1.0.8`. (2026-03-26)
+
+## Session Additions (2026-03-26, v1.0.9)
+
+- [x] **`config show` default_env** — `cmd/config.go`: `klarity config show` now prints `default_env: <value>` in the settings block when set. (2026-03-26)
+- [x] **`klarity init --reset` guard** — `cmd/init.go`: `--reset` bool flag added; if config already exists and `--reset` is not passed, prints "Config already exists … Run 'klarity init --reset' to overwrite it." and returns nil. Guard runs before kubeconfig load. (2026-03-26)
+- [x] **`--no-default` flag** — `cmd/root.go`: `--no-default` bool flag; when set, `default_env` in config is ignored (notice printed to stderr), `filteredScan=true` (bypasses cache). 1 new test `TestNoDefaultFlag`. (2026-03-26)
+- [x] **Version bump** — `1.0.9`. (2026-03-26)
 
 ## Known Issues / Blockers
 
@@ -288,6 +303,9 @@ Other changes:
 - 2026-03-25: `filterByEnvs` returns a sorted error for all missing env names at once — user sees every typo in one shot instead of fix-and-retry
 - 2026-03-25: `filterByEnv` (single-env, for `default_env`) kept separate from `filterByEnvs` (multi-env, for `--env`) — `default_env` is always one env and doesn't need the multi-error path
 - 2026-03-25: `promptDefaultEnv` cursor defaults to `cfg.Environments[0].Name` — "No default" is last in the option list; user must scroll past real envs to select it, reducing accidental dismissal
+- 2026-03-26: `BuildClientset` delegates to `BuildClientsetWithRateLimit(…, 0, 0)` — existing `ClientsetBuilder` signature unchanged; tests and `ScanAll` continue using `BuildClientset` unmodified
+- 2026-03-26: `api_qps`/`api_burst` use `omitempty` so existing configs without these fields produce clean YAML (no `api_qps: 0` lines); 0-values in old configs are coerced to 50/100 at runtime
+- 2026-03-26: `klogv2.SetLogger(logr.Discard())` in `init()` — placed after `rest.SetDefaultWarningHandler` for clarity; both suppress different layers of client-go noise
 
 ---
 

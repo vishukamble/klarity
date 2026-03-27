@@ -81,6 +81,9 @@ func runConfigShow(_ *cobra.Command, _ []string) error {
 	if len(cfg.Settings.DefaultNsExclude) > 0 {
 		fmt.Printf("  default_ns_exclude:     %s\n", strings.Join(cfg.Settings.DefaultNsExclude, ", "))
 	}
+	if cfg.Settings.DefaultEnv != "" {
+		fmt.Printf("  default_env:            %s\n", cfg.Settings.DefaultEnv)
+	}
 
 	if cfg.Notifications.Slack.Enabled {
 		fmt.Println("\nNotifications:")

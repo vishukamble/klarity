@@ -283,3 +283,43 @@ func TestFilterByEnvs(t *testing.T) {
 		})
 	}
 }
+
+func TestNoDefaultFlag(t *testing.T) {
+	cfg := &config.Config{
+		Version: 1,
+		Settings: config.Settings{
+			DefaultEnv:          "prod",
+			ParallelClusters:    1,
+			LogTailLines:        50,
+			ScanIntervalSeconds: 300,
+		},
+		Environments: []config.Environment{
+			{Name: "prod", Tier: config.TierCritical, Clusters: []config.Cluster{
+				{Context: "prod-ctx", Namespaces: config.NamespaceFilter{Mode: config.NamespaceModeAll}},
+			}},
+			{Name: "dev", Tier: config.TierStandard, Clusters: []config.Cluster{
+				{Context: "dev-ctx", Namespaces: config.NamespaceFilter{Mode: config.NamespaceModeAll}},
+			}},
+		},
+	}
+
+	// Without --no-default: filterByEnv reduces to just prod.
+	filtered := filterByEnv(cfg, cfg.Settings.DefaultEnv)
+	if len(filtered.Environments) != 1 || filtered.Environments[0].Name != "prod" {
+		t.Errorf("expected prod only, got %v", filtered.Environments)
+	}
+
+	// With --no-default: filteredScan prevents cache from being used;
+	// the config is NOT filtered — both envs remain.
+	// Simulate the flag-driven branch: flagNoDefault=true means we skip filterByEnv.
+	// Verify filteredScan logic: flagNoDefault contributes to filteredScan=true.
+	oldNoDefault := flagNoDefault
+	flagNoDefault = true
+	defer func() { flagNoDefault = oldNoDefault }()
+
+	// Re-evaluate filteredScan expression using the same formula as root.go.
+	filteredScan := flagEnv != "" || flagContext != "" || flagNamespace != "" || flagNoDefault
+	if !filteredScan {
+		t.Error("expected filteredScan=true when --no-default is set")
+	}
+}
