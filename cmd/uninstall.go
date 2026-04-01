@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/vishukamble/klarity/pkg/cache"
 )
 
 var uninstallCmd = &cobra.Command{
@@ -42,8 +43,10 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	}
 
 	// 2. Remove cache file.
-	cacheFile := filepath.Join(homeDir, ".klarity_cache")
-	if err := removeFile(cacheFile); err != nil && !os.IsNotExist(err) {
+	cacheFile, err := cache.DefaultPath()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ✗ cache:   resolving path: %v\n", err)
+	} else if err := removeFile(cacheFile); err != nil && !os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "  ✗ cache:   %v\n", err)
 	} else if err == nil {
 		fmt.Printf("  ✓ removed cache:   %s\n", cacheFile)
@@ -51,8 +54,10 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Remove scan log file.
-	logFile := filepath.Join(homeDir, ".klarity.log")
-	if err := removeFile(logFile); err != nil && !os.IsNotExist(err) {
+	logFile, err := cache.LogPath()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ✗ log:     resolving path: %v\n", err)
+	} else if err := removeFile(logFile); err != nil && !os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "  ✗ log:     %v\n", err)
 	} else if err == nil {
 		fmt.Printf("  ✓ removed log:     %s\n", logFile)

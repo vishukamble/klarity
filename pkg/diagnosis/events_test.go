@@ -423,6 +423,18 @@ func TestClassifyEventMessage(t *testing.T) {
 			image:   "",
 			want:    "This is a very long event message that exceeds eighty characters in length and should not be truncated by the fallback case",
 		},
+		{
+			name:    "UpdateFailed key with err reason",
+			message: `error processing spec.data[0] (key: ask-imanage/dev/secret), err: rpc error: code = PermissionDenied`,
+			image:   "",
+			want:    "key ask-imanage/dev/secret — rpc error: code = PermissionDenied",
+		},
+		{
+			name:    "UpdateFailed key without err",
+			message: `error processing spec.data[0] (key: vault/prod/db-password)`,
+			image:   "",
+			want:    "key vault/prod/db-password — check value or access",
+		},
 	}
 
 	for _, tt := range tests {
@@ -716,5 +728,34 @@ func TestExtractTag(t *testing.T) {
 				t.Errorf("extractTag(%q) = %q, want %q", tt.image, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestUpdateFailed_KeyExtracted(t *testing.T) {
+	results := ScanResults{
+		EnvName:    "prod",
+		ClusterCtx: "prod-cluster",
+		Events: []kube.EventIssue{
+			{
+				Namespace:  "vault",
+				ObjectName: "secret-store",
+				ObjectKind: "SecretProviderClass",
+				Reason:     "UpdateFailed",
+				Message:    `error processing spec.data[0] (key: ask-imanage/dev/secret), err: rpc error: code = PermissionDenied`,
+				Count:      3,
+			},
+		},
+	}
+	c := EventClassifier{}
+	findings := c.Classify(results)
+	if len(findings) != 1 {
+		t.Fatalf("got %d findings, want 1", len(findings))
+	}
+	oneLiner := findings[0].OneLiner
+	if !strings.Contains(oneLiner, "ask-imanage/dev/secret") {
+		t.Errorf("OneLiner %q does not contain key path %q", oneLiner, "ask-imanage/dev/secret")
+	}
+	if strings.Contains(oneLiner, "key:") {
+		t.Errorf("OneLiner %q still contains truncated 'key:' text", oneLiner)
 	}
 }

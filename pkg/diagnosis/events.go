@@ -133,6 +133,10 @@ func extractImageFromMessage(message string) string {
 // 'persistentvolumeclaim "my-pvc" not found'
 var pvcNameRe = regexp.MustCompile(`persistentvolumeclaim\s+"([^"]+)"`)
 
+// updateFailedKeyRe extracts the key path from UpdateFailed messages like:
+// "error processing spec.data[0] (key: ask-imanage/dev/secret), err: some reason"
+var updateFailedKeyRe = regexp.MustCompile(`\(key:\s*([^)]+)\)(?:,\s*err:\s*(.+))?`)
+
 // extractTag returns the tag portion of an image reference (after the last colon).
 // If no colon is present, returns empty string.
 func extractTag(image string) string {
@@ -272,6 +276,15 @@ func classifyEventMessage(message, image string) string {
 			return guessImagePullCause(image, false)
 		}
 		return "Pull failing — check pod events for details"
+	}
+
+	// UpdateFailed: extract key path from "error processing spec.data[0] (key: path), err: reason"
+	if m := updateFailedKeyRe.FindStringSubmatch(message); len(m) >= 2 {
+		key := strings.TrimSpace(m[1])
+		if len(m) >= 3 && strings.TrimSpace(m[2]) != "" {
+			return fmt.Sprintf("key %s — %s", key, strings.TrimSpace(m[2]))
+		}
+		return fmt.Sprintf("key %s — check value or access", key)
 	}
 
 	// Fallback: return message as-is (no truncation — let the terminal wrap).

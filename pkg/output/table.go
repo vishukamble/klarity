@@ -190,11 +190,12 @@ var categorySpecs = map[diagnosis.Category]catSpec{
 	diagnosis.CategoryWarningEvent: {
 		icon:    "⚠️ ",
 		label:   "Warning Events",
-		headers: []string{"Namespace", "Object", "Category", "Why"},
+		headers: []string{"Namespace", "Kind", "Object", "Category", "Why"},
 		rowFn: func(f diagnosis.Finding) []string {
+			kind := detailOr(f, "object_kind", "-")
 			objName := detailOr(f, "object_name", "-")
 			reason := detailOr(f, "reason", "-")
-			return []string{f.Namespace, objName, reason, wrapText(f.OneLiner, wrapWidth)}
+			return []string{f.Namespace, kind, objName, reason, wrapText(f.OneLiner, wrapWidth)}
 		},
 	},
 }

@@ -1,345 +1,94 @@
 # REMEMBER.md — klarity Project State
 
-> **IMPORTANT:** Claude Code MUST read this file at the start of every session. After completing any feature or making significant changes, update this file to reflect the current state. This is how we maintain continuity across sessions.
+> **IMPORTANT:** Claude Code MUST read this file at the start of every session. After completing any feature or making significant changes, update this file to reflect the current state.
 
 ## Current State
 
-**Last updated:** 2026-03-31
-**Last session focus:** HPA CPU display improvements + klarity update command (v1.1.1)
-**Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass, 313 test cases)
-
-## Project Initialization
-
-- [x] `go mod init github.com/vishukamble/klarity` — module path used (NOT `github.com/vishu/klarity`)
-- [x] Directory structure created (`cmd/`, `pkg/config/`, `pkg/kube/`, `pkg/diagnosis/`, `pkg/logs/`, `pkg/output/`)
-- [x] Cobra CLI scaffolding (`main.go`, `cmd/root.go`)
-- [x] `go build` passes with empty scaffolding
+**Last updated:** 2026-04-01
+**Last session focus:** Bug fixes + UX hardening (BUG-01/02, UX-01 through UX-05) — v1.1.1
+**Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass)
 
 ## Feature Tracker
 
-### Phase 1: Foundation
-- [x] **FEAT-01: Config schema** — `pkg/config/config.go` + `config_test.go`. Structs, Load(), Save(), Validate(). 20 table tests all pass. (2026-03-21)
-- [x] **FEAT-02: Onboarding wizard (`klarity init`)** — `cmd/init.go` + `pkg/config/detect.go`. Happy path (auto-detected envs) and fallback path (manual naming). `charmbracelet/huh` forms. 24 new table tests for detect logic. (2026-03-21)
-- [x] **FEAT-03: Multi-context client factory** — `pkg/kube/client.go`. `ClientsetBuilder` type, `BuildClientset()`, `ScanAll()` with errgroup + semaphore. 14 tests. (2026-03-21)
+- [x] **FEAT-01:** Config schema — `pkg/config/config.go`, Load/Save/Validate
+- [x] **FEAT-02:** Onboarding wizard (`klarity init`) — `cmd/init.go` + `pkg/config/detect.go`, huh forms, 4-phase wizard
+- [x] **FEAT-03:** Multi-context client factory — `pkg/kube/client.go`, BuildClientset/BuildClientsetWithRateLimit
+- [x] **FEAT-04:** Pod scanner — `pkg/kube/pods.go`, CrashLoopBackOff/ImagePullBackOff/OOMKilled/Pending/Evicted
+- [x] **FEAT-05:** Deployment scanner — `pkg/kube/deployments.go`, unavailableReplicas
+- [x] **FEAT-06:** HPA scanner — `pkg/kube/hpa.go`, at-ceiling/ScalingLimited/CPU utilization
+- [x] **FEAT-07:** Service scanner — `pkg/kube/services.go`, selector with no ready endpoints
+- [x] **FEAT-08:** Event collector — `pkg/kube/events.go`, Warning + Normal/BackOff events, 15min window, dedup
+- [x] **FEAT-09:** Resource quota scanner — `pkg/kube/resources.go`, ListQuotaIssues/ListPendingPVCs/ListPVCNames
+- [x] **FEAT-10:** DaemonSet/StatefulSet scanner — `pkg/kube/daemonsets.go` + `statefulsets.go`
+- [x] **FEAT-11:** Job/CronJob scanner — `pkg/kube/jobs.go`, ListFailedJobs/ListSuspendedCronJobs
+- [x] **Namespace resolver** — `pkg/kube/namespaces.go`, ResolveNamespaces + MatchNamespaces (filepath.Match wildcards)
+- [x] **FEAT-12:** Classifier interface — `pkg/diagnosis/classifier.go`, Finding/ScanResults/Classifier/RunAll (13 categories)
+- [x] **FEAT-13:** OOM classifier — `pkg/diagnosis/oom.go`, Critical severity
+- [x] **FEAT-14:** Image pull classifier — `pkg/diagnosis/imagepull.go`, subtypes + guessImagePullCause tag heuristics
+- [x] **FEAT-15:** CrashLoop classifier — `pkg/diagnosis/crashloop.go`, LogSummary + probe-killed detection (looksLikeCleanExit)
+- [x] **FEAT-16:** Pending classifier — `pkg/diagnosis/pending.go`, compound scheduling parser + PVC Levenshtein suggestions
+- [x] **FEAT-17:** HPA classifier — `pkg/diagnosis/hpa.go`, AtCeiling/ScalingLimited + CPU multiplier (≥2× overshoot)
+- [x] **FEAT-18:** Log tailer — `pkg/logs/parser.go`, FetchLogs via client-go GetLogs
+- [x] **FEAT-19:** One-line summarizer — `pkg/logs/summarizer.go`, Java/Python/Go/generic language-aware extraction
+- [x] **FEAT-20:** Table renderer — `pkg/output/table.go`, lipgloss/table, catSpec map, wrapText (rune-safe), kube-system hint
+- [x] **FEAT-21:** Color/tier theming — `pkg/output/color.go`, critical=red/dev=green/standard=yellow
+- [x] **FEAT-22:** JSON output — `pkg/output/json.go`, structured `{scan_time, environments, summary}`, no ANSI
+- [x] **FEAT-23:** Summary footer — `pkg/output/summary.go`, per-env counts + scan interval
+- [x] **FEAT-24:** Watch mode — `--watch`/`--interval`, signal.NotifyContext, clearScreen
+- [x] **FEAT-25:** Filters — `--namespace/-n`, `--exclude-ns`, `--context`, `--category` (comma-separated, pre-scan)
+- [x] **FEAT-26:** Config show/path — `cmd/config.go`, pretty-print + path subcommand
+- [x] **FEAT-27:** Node scanner — `pkg/kube/nodes.go` + `pkg/diagnosis/nodes.go`, 5 conditions, renders first
+- [x] **FEAT-28:** `klarity config edit` — opens $EDITOR (fallback nano/vim/vi), validates after save
+- [x] **FEAT-29:** `--version` flag — `cmd/root.go`, currently `1.1.1` ✓
+- [x] **FEAT-30:** kubelogin version detection — advisory warning for >= 0.1.19 AKS azurecli mode
+- [x] **FEAT-30b:** `klarity config validate` — context check against kubeconfig with ✓/⚠️
+- [x] **FEAT-32:** JSON output completeness — all categories including NodeIssue
+- [x] **FEAT-SLACK:** Slack — `pkg/notifications/slack.go` + `cmd/slack.go`; `klarity slack setup` wizard; `klarity slack send` (default=critical-tier, `--env`, `--all`); FormatSummary grouped env→cluster→category
+- [x] **FEAT-35:** Default environment — `Settings.DefaultEnv`, `--no-default`, banner display, large-cluster warning
+- [x] **Cache layer** — `pkg/cache/cache.go`, instant display + background compare, `~/.klarity_cache`
+- [x] **History log** — `pkg/cache/log.go`, NDJSON at `~/.klarity.log`, `--history [N]` flag
+- [x] **Container error classifiers** — `pkg/diagnosis/container.go`, 8 patterns (FailedMount, ConfigError, RunError, ImageName, Eviction, FailedCreate, Probes, Sandbox)
+- [x] **Multi-strategy env detection** — `pkg/config/detect.go`, AKS/EKS/generic + matchLocalCluster (dev-local for minikube/kind/docker-desktop/k3d)
+- [x] **Parallel namespace scanning** — WaitGroup+semaphore, `parallel_namespaces: 10` setting
+- [x] **`klarity env` command** — `cmd/env.go` + `pkg/output/envtable.go`, RenderEnvTable, alias `ls`
+- [x] **Multi-env `--env/-e`** — `filterByEnvs`, sorted multi-error for all missing names
+- [x] **API rate limits** — `BuildClientsetWithRateLimit`, `api_qps`/`api_burst` settings, klog silence
+- [x] **preprod keyword** — critical tier, before "prod" in envKeywords
+- [x] **`klarity update` command** — `cmd/update.go`, GitHub API + tarball download + atomic binary replace
+- [x] **`klarity init --reset`** — guard (exits if config exists), auto-backup to `.bak`
+- [x] **Wildcard namespace matching** — `MatchNamespaces()` with filepath.Match semantics
 
-### Phase 2: Scanners
-- [x] **FEAT-04: Pod scanner** — `pkg/kube/pods.go`. Detects CrashLoopBackOff, ImagePullBackOff, ErrImagePull, OOMKilled (from lastState), Pending, init container issues. 8 tests. (2026-03-21)
-- [x] **FEAT-05: Deployment scanner** — `pkg/kube/deployments.go`. Flags unavailableReplicas > 0 or readyReplicas < desired. 5 tests. (2026-03-21)
-- [x] **FEAT-06: HPA scanner** — `pkg/kube/hpa.go`. Flags at-ceiling (current == max), ScalingLimited condition, desired > max. Extracts CPU utilization. 5 tests. (2026-03-21)
-- [x] **FEAT-07: Service scanner** — `pkg/kube/services.go`. Flags services with selector but no ready endpoint addresses. 5 tests. (2026-03-21)
-- [x] **FEAT-08: Event collector** — `pkg/kube/events.go`. Returns Warning events within configurable lookback window (default 15 min). 5 tests. (2026-03-21)
-- [x] **FEAT-09: Resource quota scanner** — `pkg/kube/resources.go`. `ListQuotaIssues()` (≥80% threshold) + `ListPendingPVCs()` + `ListPVCNames()`. 9 tests. (2026-03-21)
-- [x] **FEAT-10: DaemonSet/StatefulSet scanner** — `pkg/kube/daemonsets.go` + `statefulsets.go`. Flags ready < desired and misscheduled pods. 8 tests. (2026-03-21)
-- [x] **FEAT-11: Job/CronJob scanner** — `pkg/kube/jobs.go`. `ListFailedJobs()` (failed > 0) + `ListSuspendedCronJobs()`. 8 tests. (2026-03-21)
+## Architecture Decisions
 
-Also added:
-- [x] **Namespace resolver** — `pkg/kube/namespaces.go`. `ResolveNamespaces()` handles all/include/exclude modes. 5 tests. (2026-03-21)
-- [x] **PodIssue.LogSummary** — added `LogSummary string` field to `PodIssue`; populated by scan loop after FEAT-18/19; crashloop classifier reads it. (2026-03-21)
-- [x] **PodIssue.VolumeClaimNames** — added `VolumeClaimNames []string` field; populated for Pending pods from pod spec volumes; used by PendingClassifier for missing-PVC detection. (2026-03-21)
-- [x] **ScanResults.AllPVCNames** — added `AllPVCNames map[string][]string` (namespace → PVC names); populated by scan loop via `ListPVCNames()`; enables classifier-level PVC cross-referencing without API calls. (2026-03-21)
-- [x] **Log stubs → real impl** — `pkg/logs/parser.go` and `pkg/logs/summarizer.go` now fully implemented. (2026-03-21)
-
-### Phase 3: Diagnosis
-- [x] **FEAT-12: Classifier interface** — `pkg/diagnosis/classifier.go`. Category (13 consts), Severity (Critical/Warning/Info), Finding struct, ScanResults struct, Classifier interface, RunAll(). (2026-03-21)
-- [x] **FEAT-13: OOM classifier** — `pkg/diagnosis/oom.go` + `oom_test.go`. Finds OOMKilled PodIssues; Critical severity; detail: image, restart_count. 5 tests. (2026-03-21)
-- [x] **FEAT-14: Image pull classifier** — `pkg/diagnosis/imagepull.go` + `imagepull_test.go`. Subtypes: auth_error, tag_not_found, registry_unreachable, unknown. 7 tests + 9 message-classification tests. (2026-03-21)
-- [x] **FEAT-15: CrashLoop classifier** — `pkg/diagnosis/crashloop.go` + `crashloop_test.go`. Uses LogSummary for OneLiner (falls back to generic). Detail includes log_summary when present. 6 tests. (2026-03-21)
-- [x] **FEAT-16: Pending classifier** — `pkg/diagnosis/pending.go` + `pending_test.go`. Subtypes: insufficient_cpu, insufficient_memory, unschedulable, pvc_not_bound, unknown. Injectable Now() for duration tests. Missing-PVC detection with Levenshtein typo suggestions (distance ≤ 2). 8 tests + 9 message-classification tests + 5 PVC/Levenshtein tests. (2026-03-21)
-- [x] **FEAT-17: HPA classifier** — `pkg/diagnosis/hpa.go` + `hpa_test.go`. AtCeiling → Critical, ScalingLimited-only → Warning. CPU overshoot in one-liner. 6 tests. (2026-03-21)
-
-### Phase 4: Log Analysis
-- [x] **FEAT-18: Log tailer** — `pkg/logs/parser.go`. Real `FetchLogs` via `cs.CoreV1().Pods(ns).GetLogs()` with `TailLines` + `Previous`. 3 tests. (2026-03-21)
-- [x] **FEAT-19: One-line summarizer** — `pkg/logs/summarizer.go`. Language-aware extraction: Java (last `Caused by:`), Python (exception after last traceback header), Go (`panic:`/`fatal error:`), Go structured log (`"command failed" err="[...]"` → first flag + count), generic (`FATAL`/`PANIC`/`Exception`/`Error`), connection errors, auth errors, fallback (last non-empty line). 26 tests + 3 priority-order tests. (2026-03-21; goCommandFailed pattern added 2026-03-23)
-
-### Phase 5: Output
-- [x] **FEAT-20: Table renderer** — `pkg/output/table.go`. lipgloss/table per category; catSpec map (icon, label, headers, rowFn); critical envs first; empty categories hidden; "✅ No issues found" per cluster with dim kube-system hint when excluded (`kubeSystemExcluded()` helper); `wrapText()` at 80 chars for Pending Reason, Warning Event Message, CrashLoop Root Cause. 31 tests. (2026-03-21; kube-system hint added 2026-03-23)
-- [x] **FEAT-21: Color/tier theming** — `pkg/output/color.go`. critical=red, dev-named=green, standard=yellow; EnvColor/EnvEmoji/EnvHeaderStyle/SeverityStyle exported. (2026-03-21)
-- [x] **FEAT-22: JSON output** — `pkg/output/json.go`. RenderJSON writes `[]jsonFinding` with no ANSI codes. --output json flag wired in cmd/root.go. (2026-03-21)
-- [x] **FEAT-23: Summary footer** — `pkg/output/summary.go`. Per-env issue counts + "Next scan in Xm Ys" from scan interval. (2026-03-21; scan history display added separately via `pkg/cache/log.go` + `--history` flag, 2026-03-23)
-- [x] **Full scan wiring** — `cmd/root.go`. Custom parallel scan loop (WaitGroup + semaphore); BuildClientset errors collected non-fatally; all 11 scanners called per namespace; logs fetched for CrashLoop pods; --output json|table; --env filter; graceful "no config" message. (2026-03-21)
-
-### Phase 6: CLI Polish
-- [x] **FEAT-24: Watch mode** — `--watch` flag + `--interval N` override; `signal.NotifyContext` for Ctrl-C; `clearScreen()` via ANSI; loop in `cmd/root.go`. (2026-03-21)
-- [x] **FEAT-25: Filters** — `--namespace/-n` (comma-separated, applied pre-scan via NamespaceFilter), `--exclude-ns` (comma-separated, applied pre-scan), `--context`, `--category` (comma-separated aliases like "oom,crashloop"); `--namespace` wins over `--exclude-ns` with warning. (2026-03-22)
-- [x] **FEAT-26: Config show command** — `cmd/config.go`; `klarity config show` (pretty-print) + `klarity config path`. (2026-03-21)
-
-### Phase 7: Platform-Specific
-- [x] **FEAT-30: kubelogin version detection** — `pkg/kube/client.go`: `DetectKubeloginVersion()`, `CheckKubeloginVersion()`, `parseKubeloginVersion()`, `KubeloginVersion.AtLeast()`. Advisory warning at scan start + during `klarity init` if kubelogin >= 0.1.19 detected with AKS exec credential. 17 new tests. README section added. (2026-03-21)
-
-### Session Additions (not in original tracker)
-
-- [x] **UX: single-cluster auto-select in init wizard** — `cmd/init.go`: `assignClusters(available, promptFn)` helper; if `len(available) == 1` returns immediately without calling promptFn; fallback path prints "✓ Only one cluster available — auto-selected: …". 3 new tests in `cmd/init_test.go`. (2026-03-23)
-- [x] **UX: empty selection re-prompt instead of fatal exit** — `assignClusters()` loops until `len(chosen) > 0`, printing "✗ No clusters selected — please select at least one." on each empty response; replaces old skip-and-continue-then-fatal-at-end behavior. (2026-03-23)
-- [x] **Corpus: Go structured log "command failed" err=[...] pattern** — `pkg/logs/summarizer.go`: `goCommandFailed()` finds `"command failed" err="[flag1, flag2, ...]"` lines, splits by `", "`, returns `"command failed: flag1 (and N more)"` or plain for single flag; priority slot 3b (after go panic/fatal, before generic FATAL). 3 new table tests. (2026-03-23)
-- [x] **Cache layer (`pkg/cache/cache.go`)** — `Cache{ScannedAt time.Time, Findings []diagnosis.Finding}` stored at `~/.klarity_cache` as JSON. `Load` returns `(nil, nil)` for missing, `(nil, err)` for corrupt. `Save` writes mode 0600. `Age` / `IsStale(threshold)`. `Equal` for order-independent comparison (sorts by composite key before JSON marshal). `cmd/root.go`: `gatherFindings()` extracted from `doScan`; cache shown instantly with `(cached Xm ago, scanning...)` header → background goroutine → compare → "✓ Still current" or clearScreen+re-render. Watch mode still writes cache. `--output json` bypasses cache path. 10 tests. (2026-03-23)
-- [x] **History log (`pkg/cache/log.go`)** — `LogEntry{ScannedAt, Environments map[string]int, Total}` appended as NDJSON lines to `~/.klarity.log` after every scan (manual + watch). `AppendLog` creates file if absent. `ReadLog(path, last)` returns last N entries; skips malformed lines. `FilterLog(entries, env)` keeps entries where env count > 0. `--history [N]` flag on root command (`NoOptDefVal = "10"`); `--history --env prod` filters. `showHistory()` renders formatted table. 7 tests. (2026-03-23)
-
-### Phase 9: CLI Polish & Scanning
-- [x] **FEAT-27: Node scanner** — `pkg/kube/nodes.go` `ListUnhealthyNodes()` checks NotReady/MemoryPressure/DiskPressure/PIDPressure/NetworkUnavailable. `pkg/diagnosis/nodes.go` `NodeClassifier` with `classifyNodeCondition()`. Renders FIRST in output. 14 tests. (2026-03-22)
-- [x] **FEAT-28: `klarity config edit`** — `cmd/config.go`: opens config in $EDITOR (fallback: nano/vim/vi), validates after save. (2026-03-22)
-- [x] **FEAT-29: `--version` flag** — `cmd/root.go`: `rootCmd.Version`, currently `1.0.6`. (2026-03-22; bumped each session)
-- [x] **FEAT-30b: `klarity config validate`** — `cmd/config.go`: loads config, runs Validate(), checks each cluster context against kubeconfig with ✓/⚠️ output. (2026-03-22)
-- [x] **FEAT-31: Watch mode improvements** — `cmd/root.go`: fixed clear sequence, added watch header with interval, clean Ctrl+C exit. (2026-03-22)
-- [x] **FEAT-32: JSON output completeness** — `pkg/output/json.go`: restructured from flat array to `{scan_time, environments[…], summary{…}}` with all categories mapped including NodeIssue. 6 tests. (2026-03-22)
-
-### Phase 8: Notifications
-- [x] **FEAT-SLACK: Slack integration** — New `pkg/notifications/` package + `cmd/slack.go`. (2026-03-21)
-  - `cmd/slack.go`: `klarity slack setup` interactive wizard (webhook or bot token, test message, severity filter, save)
-  - `pkg/notifications/slack.go`: `SendSummary()`, `TestConnection()`, `FormatSummary()` (Block Kit), `classifySlackError()` (6 error cases + fallback), `filterBySeverity()`, injectable `HTTPClient` interface for testing
-  - `pkg/config/config.go`: `SlackConfig`, `NotificationsConfig` structs; validation for mode/webhook_url/bot_token/channel/min_severity
-  - `cmd/root.go`: wired `SendSummary()` after scan render; errors are non-fatal (printed to stderr)
-  - `cmd/config.go`: `config show` displays slack settings when enabled
-  - 27 new tests (FormatSummary, error classification, mock HTTP, severity filtering, on_issues_only)
-
-## Marketing Website
-
-- `website/index.html` + `website/style.css` — static marketing site, to be hosted on S3 + CloudFront. Added 2026-03-21.
-- Not part of the Go build; keep it out of `go build` / `go test` scope.
-
-## Session Additions (2026-03-24)
-
-- [x] **Multi-strategy cluster detection** — `pkg/config/detect.go`: AKS pattern (`aks-{org}-{level}-*` → `{level}-{org}`), EKS pattern (`{project}-{level}-*` → `{level}-{project}`), generic keyword fallback. `normalizeLevel()`, `matchAKSPattern()`, `matchEKSPattern()`, `BestGuessGroup()`, `HasEnvKeyword()`, `BuildDetectedConfigWithTiers()`. `tierForLabel` updated to use `containsWord` so `prod-intel` → critical. 38 new tests. (2026-03-24)
-- [x] **New init wizard** — `cmd/init.go`: 4-phase wizard (show groupings, handle unmatched, tier confirm, final save). Replaces separate happy/fallback paths for normal flow; `runFallbackPath` still reachable via "Edit" option. `promptDefaultEnv()` in Phase 5 for large configs. (2026-03-24)
-- [x] **Parallel namespace scanning** — `cmd/root.go` `scanCluster()`: WaitGroup+semaphore fan-out over namespace loop, concurrency controlled by `cfg.Settings.ParallelNamespaces` (default 10). `pkg/config/config.go`: `ParallelNamespaces int` field added. 37 namespaces at concurrency 10 → ~15s vs ~76s sequential. (2026-03-24)
-- [x] **FEAT-35: Default environment** — `pkg/config/config.go`: `Settings.DefaultEnv string` field. `cmd/init.go`: `promptDefaultEnv()` after save when >10 clusters total. `cmd/root.go`: applies `default_env` when no `--env`/`--context` flags; shows framed banner when default active; prints large-cluster warning with `suggestDefaultEnv()` tip when no default and >10 clusters. 3 new tests (`TestSuggestDefaultEnv`). (2026-03-24)
-- [x] **root.go syntax fix** — Removed incomplete duplicate cache block that was breaking compilation. (2026-03-24)
-- [x] **Version bump** — `cmd/root.go`: currently `1.0.7`. (2026-03-24 → 2026-03-25)
-
-## Session Additions (2026-03-25)
-
-- [x] **preprod keyword** — `pkg/config/detect.go`: added `{label: "preprod", keywords: []string{"preprod", "pre-prod"}}` before "prod" entry; `eksRe` updated to include "preprod"; `tierForLabel` updated — `containsWord(lower, "preprod")` → critical. `ravn-preprod-centralus` → "preprod" (not "prod"); "preprod-ravn" → critical. 6 new tests (`TestMatchLabel_Preprod`, `TestTierForLabel_Preprod`, `TestBestGuessGroup_Preprod` + 3 table entries). (2026-03-25)
-- [x] **`klarity env` command** — `cmd/env.go`: new cobra subcommand (`Use: "env"`, `Aliases: []string{"ls"}`); loads config, detects TTY via `golang.org/x/term`, calls `output.RenderEnvTable`. `pkg/output/envtable.go`: `RenderEnvTable(envs []config.Environment, noColor bool) string` — lipgloss/table with columns Environment | Tier | Clusters | Context Names; critical rows colour Environment and Context Names cells red (`lipgloss.Color("9")`); no colour when `noColor=true`. (2026-03-25)
-- [x] **Table rendering in init wizard** — `cmd/init.go`: Phase 1 "Proposed groupings" and Phase 4 "Config summary" now render `output.RenderEnvTable` instead of plain printf lists. Two new helpers: `detectedToEnvs(DetectedEnvs) []config.Environment` and `selectedToEnvs(map[string][]string, order) []config.Environment`. TTY detection via `golang.org/x/term`. (2026-03-25)
-- [x] **Fix: default cursor in promptDefaultEnv** — `cmd/init.go`: `chosen` initialised to `cfg.Environments[0].Name` (first real env) instead of `""`, so "No default — scan everything" is the last option but not the pre-selected cursor position. (2026-03-25)
-- [x] **Multi-env `--env` flag** — `cmd/root.go`: flag changed to `StringVarP` with `-e` shorthand; description updated to "comma-separated"; `filterByEnvs(cfg, []string) (*Config, error)` added — retains all matching envs, returns sorted error listing missing names; `--env` block parses via `parseCommaSeparated` then calls `filterByEnvs`. `filterByEnv` (single-env) kept for `default_env` path. 5 new `TestFilterByEnvs` subtests. (2026-03-25)
-
-## Session Additions (2026-03-26)
-
-- [x] **Rate limiter tuning** — `pkg/kube/client.go`: `BuildClientsetWithRateLimit(kcp, ctx string, qps float32, burst int)` sets `restConfig.QPS` and `restConfig.Burst` before creating the clientset; 0-values fall back to package constants `defaultQPS=50` / `defaultBurst=100`. `BuildClientset` now calls `BuildClientsetWithRateLimit(…, 0, 0)`. (2026-03-26)
-- [x] **Config fields `api_qps` / `api_burst`** — `pkg/config/config.go`: `APIQps float32` and `APIBurst int` added to `Settings` with `omitempty`; defaults `50` / `100` in `DefaultConfig()`. Old configs without these fields get the defaults via the 0-fallback in `BuildClientsetWithRateLimit`. (2026-03-26)
-- [x] **Wire rate limits into scan loop** — `cmd/root.go` `gatherFindings`: `BuildClientset` call replaced with `kube.BuildClientsetWithRateLimit(…, cfg.Settings.APIQps, cfg.Settings.APIBurst)`. (2026-03-26)
-- [x] **Silence klog** — `cmd/root.go` `init()`: `klogv2.SetLogger(logr.Discard())` suppresses all klog output including client-go rate-limiter throttling messages. `go-logr/logr` and `k8s.io/klog/v2` were already indirect dependencies. (2026-03-26)
-- [x] **Version bump** — `1.0.8`. (2026-03-26)
-
-## Session Additions (2026-03-26, v1.0.9)
-
-- [x] **`config show` default_env** — `cmd/config.go`: `klarity config show` now prints `default_env: <value>` in the settings block when set. (2026-03-26)
-- [x] **`klarity init --reset` guard** — `cmd/init.go`: `--reset` bool flag added; if config already exists and `--reset` is not passed, prints "Config already exists … Run 'klarity init --reset' to overwrite it." and returns nil. Guard runs before kubeconfig load. (2026-03-26)
-- [x] **`--no-default` flag** — `cmd/root.go`: `--no-default` bool flag; when set, `default_env` in config is ignored (notice printed to stderr), `filteredScan=true` (bypasses cache). 1 new test `TestNoDefaultFlag`. (2026-03-26)
-- [x] **Version bump** — `1.0.9`. (2026-03-26)
-
-## Session Additions (2026-03-26, v1.1.0 — audit bug fixes)
-
-- [x] **[C1] Fix uninstall file paths** — `cmd/uninstall.go`: cache path corrected from `~/.klarity_cache.json` → `~/.klarity_cache`; log path corrected from `~/.klarity_log.json` → `~/.klarity.log`; `Long` help text updated to match. (2026-03-26)
-- [x] **[H1] Fix InvalidImageName duplicate findings** — `pkg/diagnosis/imagepull.go`: removed `"InvalidImageName"` from `imagePullReasons`; `ContainerErrorClassifier` is now the sole handler via `classifyImageNameError()`. Updated `imagepull_test.go` (wantLen 1→0). Added `TestInvalidImageName_NoDuplicateFindings` regression test in `container_test.go`. (2026-03-26)
-- [x] **[M1] Fix non-existent `--include-system` flag reference** — `pkg/output/table.go:331`: changed hint from `"use --include-system to scan control plane components"` to `"use --namespace kube-system to scan it"`. (2026-03-26)
-- [x] **[M3] Fix `wrapText` byte vs rune indexing** — `pkg/output/table.go`: `wrapText()` now uses `[]rune(s)` for length check and slicing, preventing mid-rune splits on multi-byte characters. Added regression test case in `output_test.go`. Updated existing `TestWrapLines` expectation for `•`-prefixed lines (rune-based break falls 2 runes later than byte-based). (2026-03-26)
-- [x] **Version bump** — `cmd/root.go`: `1.0.9` → `1.1.0` (first audit-driven release). (2026-03-26)
-
-## Session Additions (2026-03-26, audit low-priority cleanup)
-
-- [x] **[L1] Deprecated `.Copy()` removed** — `pkg/output/envtable.go`: `criticalStyle.Copy().Padding(0,1)` → `criticalStyle.Padding(0,1)`; lipgloss styles are value types in v1.x, Copy() is a no-op and deprecated. (2026-03-26)
-- [x] **[L2] Dead `ScanAll` + `ScanFunc` deleted** — `pkg/kube/client.go`: removed `ScanFunc` type and `ScanAll` function (used errgroup, violating WaitGroup+semaphore architecture rule; never called from production — `gatherFindings` in root.go handles all scanning); removed `errgroup`, `context`, and `pkg/config` imports. `pkg/kube/client_test.go` deleted (only tested ScanAll). −7 tests. (2026-03-26)
-- [x] **[L3] `RenderEnvTable` tests added** — `pkg/output/envtable_test.go`: 7 table-driven tests — empty input (nil + empty slice), single standard env, single critical env noColor=true, single critical env noColor=false, multiple envs, multi-line context names, headers present. +7 tests. (2026-03-26)
-- [x] **[L4] Redundant `cfg.Validate()` removed** — `cmd/config.go` `runConfigEdit`: removed explicit `cfg.Validate()` call after `config.Load()` — `Load()` already calls `Validate()` internally and returns the error. Simplified to single `if _, err := config.Load(cfgPath)` check. (2026-03-26)
-
-## Session Additions (2026-03-26, Slack refactor)
-
-- [x] **Remove auto-post Slack** — `cmd/root.go`: removed `postToSlack()` helper and both call sites (cache-hit path + `doScan`); removed `notifications` import from root.go. (2026-03-26)
-- [x] **`buildClassifiers()` helper** — `cmd/root.go`: extracted classifier list into `buildClassifiers()` so both the root scan and `klarity slack send` can call it without duplication. (2026-03-26)
-- [x] **Remove severity filtering** — `pkg/config/config.go`: removed `SlackSeverityAll/High/Critical` constants; removed `OnIssuesOnly` and `MinSeverity` fields from `SlackConfig`; removed `MinSeverity` validation from `validateSlackConfig`. (2026-03-26)
-- [x] **Simplify `SendSummary`** — `pkg/notifications/slack.go`: removed `filterBySeverity()` and `on_issues_only` gating; `SendSummary` posts all findings when enabled. (2026-03-26)
-- [x] **Rewrite `FormatSummary`** — `pkg/notifications/slack.go`: findings now grouped by env → cluster → category; one section block per category per cluster; `[namespace] pod — one-liner` format per finding; per-env counts sorted alphabetically. (2026-03-26)
-- [x] **Simplify `klarity slack setup`** — `cmd/slack.go`: removed severity and on_issues_only steps; now 4 steps only: mode → credentials → test connection → save. (2026-03-26)
-- [x] **`klarity slack send`** — `cmd/slack.go`: new subcommand; default = critical-tier envs only; `--env` = named envs; `--all` = everything; calls `gatherFindings` + `SendSummary`; prints "No issues found" if empty. `filterByCriticalTier()` helper added. (2026-03-26)
-- [x] **Updated tests** — `pkg/notifications/slack_test.go`: removed `TestFilterBySeverity`, `TestSendSummary_MinSeverityFilter`, `TestSendSummary_OnIssuesOnly_NoFindings`; updated `FormatSummary` tests for new grouped format; added `TestSendSummary_PostsWithNoFindings`, `TestSendSummary_AllFindingsPosted`. `cmd/root_test.go`: added `TestSlackSendFiltersCriticalByDefault`. (2026-03-26)
-
-## Session Additions (2026-03-31, v1.1.1)
-
-- [x] **Wildcard namespace matching** — `pkg/kube/namespaces.go`: `MatchNamespaces(patterns, candidates []string) ([]string, error)` uses `filepath.Match` semantics; exact names are literal matches; results deduplicated and ordered by candidate position; invalid patterns return error with pattern name; empty patterns passthrough unchanged. `cmd/root.go` `scanCluster`: replaced old nsInclude-override-filter approach with always-resolve-then-MatchNamespaces; cluster's own filter applied first (API call), then `MatchNamespaces` filters the live list. 11 new tests in `namespaces_test.go`. Version bumped to `1.1.1`. (2026-03-31)
-- [x] **Local cluster detection** — `pkg/config/detect.go`: `matchLocalCluster(contextName)` recognises minikube (exact + `minikube-` prefix), kind (exact + `kind-` prefix), `docker-desktop`, `docker-for-desktop`, `rancher-desktop`, and `k3d-` prefix → returns `"dev-local"`; runs as Strategy 0 before AKS/EKS/generic in `DetectEnvironments`; `BestGuessGroup` also calls `matchLocalCluster` first; `tierForLabel("dev-local")` → standard. Updated `TestDetectEnvironments_DockerDesktop` (previously expected unmatched; now expects `dev-local`). 13 new tests: `TestMatchLocalCluster` (10 subtests), `TestDetectEnvironments_LocalClusters`, `TestTierForLabel_DevLocal`. (2026-03-31)
-- [x] **`klarity update` command** — `cmd/update.go`: fetches latest version from GitHub releases API (`GET …/releases/latest`, parses `tag_name`); compares with `Version` constant; if already current, prints "✓ already latest" and exits; otherwise downloads `klarity_{os}_{arch}.tar.gz` tarball, extracts binary via `archive/tar` + `compress/gzip`, atomically replaces current binary (write to temp then `os.Rename`); permission denied → clear message "try: sudo klarity update"; `updateHTTPClient` interface injectable for tests. `cmd/init.go`: auto-backup on `--reset` — copies `~/.klarityconfig.yaml` → `~/.klarityconfig.yaml.bak` before wizard runs; `cfgPath` variable scope unified so step 4 (save) reuses the resolved path. 7 new tests: `TestParseLatestVersion`, `TestParseLatestVersion_NoV`, `TestParseLatestVersion_NonOK`, `TestAlreadyUpToDate`, `TestBuildDownloadURL` (4 subtests). (2026-03-31)
-- [x] **HPA CPU display improvement** — `pkg/output/table.go`: column header "CPU Now" → "CPU % of Target"; when parsed cpu_current_percent > 200 appends multiplier `"Xval% (Y.Y×)"` using `strconv.Atoi` + `%.1f` formatting; when > 150 renders cell in red via `lipgloss.Color("9")`. `pkg/diagnosis/hpa.go`: AtCeiling + CPU OneLiner uses multiplier format when `current/target >= 2.0` ("6.2× target"), otherwise keeps original "X% vs target Y%" format. Note: `%.1f` of 6.25 = "6.2" (Go banker's rounding). 4 new tests: `TestHPAClassifier_HighOvershoot`, `TestHPAClassifier_ModerateOvershoot`, `TestHPARow_HighCPU`, `TestHPARow_NormalCPU`. (2026-03-31)
+1. Module path is `github.com/vishukamble/klarity` (NOT `github.com/vishu/klarity`).
+2. `huh` forms require TTY; init wizard form logic not unit-tested — testable helpers (assignClusters, buildEnvironmentsFromInput) are separate from huh calls.
+3. OOMKilled emitted as a separate PodIssue even when container is also in CrashLoopBackOff — classifiers correlate them.
+4. `QuotaThreshold = 80.0` — quota issues reported at ≥80% usage.
+5. kubelogin check is advisory only — never fatal; warns stderr for >= 0.1.19 (azurecli mode only).
+6. Slack errors are non-fatal — stderr only, never block scanning or output.
+7. `ListWarningEvents()` makes two API calls: `type=Warning` + `type=Normal,reason=BackOff`; BackOff events carry image names needed by `classifyImagePullGroup()`; fallback to all-Normal if cluster rejects compound selector.
+8. Cache bypassed for `--output json` — ANSI-free path needs no cache headers; cache still written after live scan.
+9. `cache.Equal()` sorts findings by composite key (`Category+EnvName+ClusterCtx+Namespace+PodName+OneLiner`) before JSON marshal to guard against goroutine ordering.
+10. `--history` uses cobra `NoOptDefVal="10"` so `--history` alone → 10, `--history 20` → 20, absent → disabled.
+11. `tierForLabel` uses `containsWord` — "prod-intel" → critical, "reproduced-cluster" → standard (no substring match).
+12. `parallel_namespaces: 0` in old configs coerced to 10 at runtime (not a validation error).
+13. `Settings.DefaultEnv` validated at scan time, not on config load — error surfaced only when env is absent.
+14. `default_env` banner and large-cluster warning only fires when both `--env` and `--context` are absent.
+15. `matchLocalCluster` is Strategy 0 before AKS/EKS/generic — minikube/kind/docker-desktop/rancher-desktop/k3d → "dev-local" (standard tier).
+16. "preprod" is critical tier (checked before "prod") — it's a production-class environment.
+17. `filterByEnvs` returns a sorted multi-error for all missing names at once — user sees every typo in one shot.
+18. `klarity slack setup` tests connection before saving — if test fails, config is not written.
+19. PVC suggestion replaces `message` entirely in Pending findings via `pvcSuggestion()` — no separate `pvc_not_found` row.
+20. `ContainerErrorClassifier` handles pod-level errors (CreateContainerConfigError, RunContainerError, InvalidImageName); `EventClassifier` is sole handler for Evicted — no duplicate findings.
+21. `api_qps`/`api_burst` use `omitempty` — old configs without these fields produce clean YAML; 0-values coerced to 50/100 at runtime.
+22. `ResolveNamespaces()` 4th param `defaultExclude` applied only for mode=all with empty cluster exclude list; ignored for include/exclude modes.
+23. `MatchNamespaces()` passthrough on empty patterns; invalid patterns return error with pattern name; dedup preserves candidate order.
+24. `classifyImagePullGroup()` scans ALL events for the object (not just the "best" one) to guarantee image name extraction from BackOff events.
 
 ## Known Issues / Blockers
 
 _None._
 
-## ListWarningEvents BackOff Fix (2026-03-22, Session 28)
-
-- **Root cause** — `classifyImagePullGroup()` couldn't extract image names because Normal/BackOff events (which carry `Back-off pulling image "..."`) were never fetched; only `type=Warning` events were collected
-- **Fix** — `pkg/kube/events.go`: second `List()` call with `FieldSelector: "type=Normal,reason=BackOff"`; results merged into single slice; deduplication by `(namespace, objectName, reason, message)` using `\x00`-separated key; Normal events with any reason other than BackOff filtered out in `addEvent()`
-- **Fallback** — if cluster returns "field label not supported" for the compound selector, retries with `type=Normal` and filters `reason=="BackOff"` in Go
-- **Tests added** — `makeTypedEvent()` helper; `TestListWarningEvents_IncludesNormalBackOff` (Warning/Failed included, Normal/BackOff included, Normal/Pulling excluded); `TestListWarningEvents_DeduplicatesBackOff` (fake client returns events from both calls, dedup ensures single finding)
-
-Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (all pass)
-
-## Audit Fixes (2026-03-22, Session 27)
-
-- **L3: DefaultNsExclude never applied** — Added `defaultExclude []string` parameter to `ResolveNamespaces()`; call site in `cmd/root.go` passes `cfg.Settings.DefaultNsExclude`; 4 new tests covering all mode interactions; `CLAUDE.md` updated with DefaultNsExclude behavior note
-- **M4: NoEndpoints shows '-' instead of service name** — Set `finding.PodName = s.ServiceName` in `pkg/diagnosis/noendpoints.go`; test updated with `wantPodName` field
-- **H2: wrapText leading space** — Fixed `wrapText()` to skip space at break point so second line has no leading space; test expectation updated
-- **M3: Evicted duplicate finding** — Removed `Evicted` case from `ContainerErrorClassifier`; integration test removed; `EventClassifier` is the sole handler for Evicted events
-- **L1+L2: CLAUDE.md stale references** — Removed broken `@docs/brainstorm.md` reference; corrected "errgroup" to "WaitGroup + semaphore"
-
-Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (all pass)
-
-## Audit Fixes (2026-03-21, Session 9)
-
-- **C1: Missing classifiers** — Created 8 new classifiers (NoEndpoints, Quota, PVC, DaemonSet, StatefulSet, Job, CronJob, Event) with tests; registered all 13 in `cmd/root.go`
-- **H1/M4: Pending pod Message empty** — Added `pendingMessage()` in `pkg/kube/pods.go` to extract scheduling reason from Pod conditions (PodScheduled=False)
-- **H2: filterByNamespace/filterByCategory mutate backing array** — Changed from `findings[:0]` to `var out []diagnosis.Finding`
-- **H3: config show swallows errors** — Now only treats `os.ErrNotExist` as "no config found"; other errors propagated
-- **M1: WarningEvent column mismatch** — Custom rowFn for WarningEvent (4 columns: Namespace, Object, Reason, Message) instead of genericRow (3 columns)
-- **M5: exclude_completed_jobs unused** — Wired into `ListFailedJobs()` as `excludeCompleted` param; skips jobs with CompletionTime set
-- **M6: Duplicate favicon tags** — Removed duplicate `<link rel="icon">` block in `website/index.html`
-
-## 10 New Error Pattern Classifiers (2026-03-22, Session 19)
-
-New file `pkg/diagnosis/container.go` with 8 classifier functions + `ContainerErrorClassifier`:
-
-| Pattern | Function | Key signals |
-|---|---|---|
-| FailedMount | `classifyMountError()` | ConfigMap/Secret not found (name extraction), NFS timeout, CSI error, mount.nfs |
-| CreateContainerConfigError | `classifyConfigError()` | Missing key in ConfigMap/Secret (key+name extraction), invalid env var name |
-| RunContainerError | `classifyRunError()` | Executable not found (cmd extraction), no such file (path extraction), OCI runtime |
-| InvalidImageName | `classifyImageNameError()` | Invalid reference format (Helm {{ }}), failed to apply default image tag |
-| Evicted | `classifyEviction()` | ephemeral-storage, memory pressure, DiskPressure |
-| FailedCreate | `classifyFailedCreate()` | Exceeded quota (name+resource), admission webhook denied (name+reason) |
-| Unhealthy (probes) | `classifyProbeFailure()` | Liveness/Readiness/Startup probe: 5xx, connection refused, status code, timeout |
-| FailedCreatePodSandBox | `classifySandboxError()` | cgroup error, CNI IP exhaustion, CNI plugin error, failed sandbox |
-
-Other changes:
-- **TopologySpreadConstraint** in `parseSchedulingMessage()` — "N nodes: topology spread violated"
-- **Job failure classification** — `classifyJobFailure()`: BackoffLimitExceeded → "hit retry limit", DeadlineExceeded → "timed out", includes failed pod count
-- **Evicted pod detection** — `pkg/kube/pods.go`: catches `pod.Status.Phase == Failed && pod.Status.Reason == "Evicted"`
-- **RunContainerError** added to `unhealthyWaitingReasons` in pods.go
-- **ContainerErrorClassifier** registered in `cmd/root.go` — catches CreateContainerConfigError, RunContainerError, InvalidImageName, Evicted pod-level issues
-- **Event reason-based dispatch** in `EventClassifier.Classify()` — FailedMount, Unhealthy, FailedCreate, FailedCreatePodSandBox, Evicted routed to specialized classifiers before generic message classification
-- 81 new tests; total 467 test runs, all pass
-
-## Compound Scheduling Message Parser (2026-03-22, Session 18)
-
-- **`parseSchedulingMessage()`** — Splits compound K8s scheduling messages (`0/49 nodes are available: ...`) into individual `SchedulingReason` structs with Count, Kind, Summary
-- **`SchedulingReason`** — Count (N nodes), Kind (taint/affinity/resource/autoscaler/other), Summary (human-readable)
-- **Classification rules** — Taints: CriticalAddonsOnly, GPU role, CPU role, not-ready, unreachable, generic. Affinity: nodeAffinity/nodeSelector. Resources: cpu, memory, nvidia.com/gpu, nvidia.com/mig-*. Autoscaler: max node group, no scale-up. KeyVault CSI errors.
-- **`stripPreemption()`** — Removes "preemption: ..." suffix (no diagnostic value)
-- **`formatSchedulingReasons()`** — Single reason: plain text. Multiple: bulleted list sorted by Count descending
-- **Output integration** — Pending Reason column no longer wraps; shows structured multi-line summary instead of raw message
-- 20 new tests; total 386 test runs, all pass
-
-## Bugfixes (2026-03-21, Session 17)
-
-- **Fix 1: PVC duplicate row** — `checkMissingPVCs()` replaced with `pvcSuggestion()` that folds PVC hint into the main pending finding's `message` detail field instead of creating a separate `pvc_not_found` finding row
-- **Fix 2: Why column truncation** — Removed `wrapText()` from Warning Events Why column; the column now renders at full length, letting the terminal handle natural wrapping
-- **Fix 3: client-go deprecation warning** — Added `rest.SetDefaultWarningHandler(rest.NoWarnings{})` in `cmd/root.go` `init()` to suppress "v1 Endpoints is deprecated" stderr noise
-
-## Warning Events Refactor (2026-03-21, Sessions 14–15)
-
-- **Part 1: Deduplication** — `groupEventsByObject()` collects all events per (ns, objectName); `bestEventForObject()` picks the event with diagnostic signal content (manifest unknown, 401, etc.) over generic ones; one finding per object
-- **Part 2: Message classification** — `classifyEventMessage(message, image)` maps raw K8s messages to human-readable causes; image name included when available (e.g. "Tag not found: alpine:lates — verify tag exists")
-- **Part 3: Table columns** — Changed from `Namespace | Object | Reason | Message` to `Namespace | Object | Category | Why`; OneLiner now contains classified message with image name
-- **Image extraction** — `extractImageFromMessage()` parses `pull image "img:tag"` / `pulling image "img:tag"` patterns; `collectImageFromGroup()` searches all events for an object to find the image
-- **No-signal fallback** — `guessImagePullCause(image, hasDetailEvent)` uses 4-branch tag heuristics: (1) nonsense tags → "Likely bad tag", (2) Levenshtein ≤ 2 from "latest" → "Likely typo", (3) semver/well-known → "Registry unreachable ... original error expired", (4) fallback → "Pull failed ... original error expired"
-- 57 new tests (classifier + classifyEventMessage + extractImageFromMessage + guessImagePullCause + extractTag); total 366 test runs, all pass
-
-## Architecture Decisions Made
-
-- 2026-03-21: Module path is `github.com/vishukamble/klarity` (not `github.com/vishu/klarity`)
-- 2026-03-21: `brainstorm.md` lives at repo root, not in `docs/`
-- 2026-03-21: `NamespaceFilter.Mode=exclude` with empty Exclude list is valid
-- 2026-03-21: `devops-tools` does NOT match `dev` — word-boundary check in detect.go
-- 2026-03-21: `huh` forms require TTY; init.go not unit-tested — logic lives in detect.go
-- 2026-03-21: `ScanAll` uses `kubernetes.Interface` for fake injection in tests
-- 2026-03-21: `parallel_clusters: 0` coerced to 1 inside `ScanAll`
-- 2026-03-21: OOMKilled emitted as separate PodIssue even when container is also in CrashLoopBackOff — diagnosis layer correlates them
-- 2026-03-21: `QuotaThreshold = 80.0` — quota issues reported at ≥80% usage
-- 2026-03-21: `ResolveNamespaces` is a shared helper called by the scan loop, not inside individual scanners
-- 2026-03-21: All scanner functions take `(ctx, cs, namespace string)` — one namespace per call; caller iterates namespaces
-- 2026-03-21: `pendingMessage()` extracts from PodScheduled=False condition first, then falls back to any condition with a message
-- 2026-03-21: `ListFailedJobs` takes `excludeCompleted bool` — skips jobs with `CompletionTime != nil` when true
-- 2026-03-21: `filterByNamespace`/`filterByCategory` use fresh slices (not `findings[:0]`) to avoid mutating shared backing arrays
-- 2026-03-21: kubelogin version check is advisory only — never fatal, never blocks scanning. Warns on stderr for >= 0.1.19 (azurecli regression). `klarity init` only checks if exec credential with `kubelogin` command found in kubeconfig.
-- 2026-03-21: Slack notifications are non-fatal — errors printed to stderr, never block scanning or output
-- 2026-03-21: `pkg/notifications/` uses injectable `HTTPClient` interface (not `*http.Client`) for testability
-- 2026-03-21: Slack config lives under `notifications.slack` in config YAML, not under `settings`
-- 2026-03-21: `klarity slack setup` tests connection before saving — if test fails, config is not written
-- 2026-03-21: `min_severity` filter applied before `on_issues_only` check — so "critical only + on_issues_only" won't post if only Warning/Info findings exist
-- 2026-03-21: Missing-PVC detection lives in `PendingClassifier.checkMissingPVCs()` — pure function of `ScanResults`, no API calls; `VolumeClaimNames` and `AllPVCNames` populated at scan time
-- 2026-03-21: Levenshtein distance threshold for PVC typo suggestions is ≤ 2; `closestPVCName()` returns best match or "" if none within threshold
-- 2026-03-21: `ListPVCNames()` returns ALL PVC names in a namespace (all phases), not just pending ones — needed for typo cross-referencing
-- 2026-03-21: `wrapText()` applied only to free-text columns (Pending Reason, Warning Event Message, CrashLoop Root Cause) at 80 chars; fixed-width columns (Namespace, Pod, etc.) never wrapped
-- 2026-03-21: `klarity init` fallback path guard: if wizard completes with zero environments, returns user-facing error instead of saving invalid config
-- 2026-03-21: Warning Events deduplicated per (namespace, objectName) — one row per object, keeping highest-priority event (ErrImagePull > Failed > FailedScheduling > BackOff > others)
-- 2026-03-21: `classifyEventMessage(message, image)` maps raw K8s event messages to human-readable causes; PVC check runs before generic "not found" to avoid false positive; fallback truncates at 80 chars; image name included in image-pull-related branches when available
-- 2026-03-21: Event dedup uses message signal content (not reason priority) — `messageHasSignal()` checks for diagnostic substrings; `collectImageFromGroup()` extracts image from any event in the group
-- 2026-03-21: `guessImagePullCause()` uses tag heuristics when no ErrImagePull detail exists; Levenshtein threshold ≤ 2 for "latest" typo detection (consistent with PVC typo threshold); `extractTag()` handles registry:port/image:tag correctly
-- 2026-03-21: Nonsense tag patterns checked before typo/semver to avoid false positives (e.g. "fake" won't match typo branch)
-- 2026-03-21: PVC missing-reference info folded into main Pending finding's `message` field via `pvcSuggestion()` — no separate `pvc_not_found` row; avoids duplicate rows for the same pod
-- 2026-03-21: Warning Events Why column has no `wrapText()` — relies on terminal natural wrapping to avoid cutting off actionable commands like `docker pull <image>`
-- 2026-03-21: `rest.SetDefaultWarningHandler(rest.NoWarnings{})` called in `cmd/root.go` `init()` — suppresses all client-go deprecation warnings on stderr
-- 2026-03-22: Pending Reason column has no `wrapText()` — shows structured multi-line scheduling reasons instead of raw message
-- 2026-03-22: `parseSchedulingMessage()` strips preemption suffix, splits by comma, classifies each reason independently, sorts by Count descending
-- 2026-03-22: `insufficientRe` captures resource name with `[\w./\-]+` and trims trailing period — avoids matching sentence-ending dots as part of resource names
-- 2026-03-22: Single scheduling reason renders without bullet; multiple reasons use `•` prefix per line
-- 2026-03-22: KeyVault CSI errors detected before scheduling message split — returns single "other" kind reason
-- 2026-03-22: Event reason-based dispatch in `EventClassifier.Classify()` uses switch on `best.Reason` before falling through to `classifyEventMessage()` — FailedMount, Unhealthy, FailedCreate, FailedCreatePodSandBox, Evicted each routed to specialized classifiers
-- 2026-03-22: `ContainerErrorClassifier` handles pod-level container errors (CreateContainerConfigError, RunContainerError, InvalidImageName, Evicted) — emits findings under `CategoryWarningEvent`
-- 2026-03-22: Evicted pods detected in `ListUnhealthyPods()` via `pod.Status.Phase == Failed && pod.Status.Reason == "Evicted"` — surfaced both as pod-level findings (ContainerErrorClassifier) and event-level (EventClassifier if matching events exist)
-- 2026-03-22: Mount error classifier uses `cmNotFoundRe`/`secNotFoundRe` (specific regexes) instead of generic `quotedNameRe` — avoids matching volume name instead of configmap/secret name
-- 2026-03-22: `classifyJobFailure()` checks conditions for BackoffLimitExceeded/DeadlineExceeded before falling back to generic message — includes failed pod count in all messages
-- 2026-03-22: TopologySpreadConstraint in scheduling messages classified as kind "affinity" — consistent with other node-matching failures
-- 2026-03-22: PVC suggestion replaces message entirely (not appended) — `pvcSuggestion` check runs first, skips scheduling message parsing if non-empty
-- 2026-03-22: Preemption suffix stripped in `Classify()` before `classifyPendingMessage()` — uses existing `stripPreemption()` on `p.Message` before any processing
-- 2026-03-22: Namespace column has fixed `Width(30)` via `StyleFunc(row, col)` in table builder — prevents wrapping when adjacent columns have long content
-- 2026-03-22: `--namespace` accepts comma-separated list (parsed by `parseCommaSeparated`); applied pre-scan via `NamespaceFilter.Include`; no post-scan filtering
-- 2026-03-22: `--exclude-ns` flag excludes namespaces before API calls via `applyNamespaceFilters()`; ignored with warning if `--namespace` also set
-- 2026-03-22: `cmd/root_test.go` added — first test file in `cmd/` package; tests `parseCommaSeparated` and `applyNamespaceFilters`
-- 2026-03-22: `BackOff` event reason gets dedicated `classifyBackOff()` dispatch — distinguishes CrashLoopBackOff ("restarting failed container") from ImagePullBackOff ("pulling image"); removed `BackOff` from generic `guessImagePullCause` path in default switch case
-- 2026-03-22: `classifyEventMessage()` fallback no longer truncates with `...` — returns message as-is, terminal handles wrapping
-- 2026-03-22: `classifyBackOff()` extracts pod name from "in pod <name>_namespace(...)" for actionable kubectl command in CrashLoopBackOff case
-- 2026-03-22: Image pull events use `classifyImagePullGroup()` which scans ALL events for image names and signals, instead of picking one "best" event — guaranteed to find image from BackOff events regardless of how many Failed events exist
-- 2026-03-22: `isImagePullGroup()` detects image-pull groups by checking if any event has pulling/pull image/imagepullbackoff/errimagepull in its message with a matching reason
-- 2026-03-22: `bestEventForObject()` simplified back to signal-first, used only for non-image-pull events
-- 2026-03-22: All fallback messages for image pull failures changed from "check ErrImagePull reason above" to actionable "check pod events for details" or "kubectl describe pod <name>"
-- 2026-03-22: `HasLivenessProbe` field on `PodIssue` — populated from pod spec by `containerHasLivenessProbe()`; used by CrashLoopClassifier to detect probe-killed exits
-- 2026-03-22: `looksLikeCleanExit()` detects clean shutdown patterns ([notice]+exit, signal 15, SIGTERM, graceful shutdown/stop, server shutting down); combined with `HasLivenessProbe` to suggest probe-killed diagnosis
-- 2026-03-22: `buildEnvironmentsFromInput()` is the testable core of fallback path — takes names + assignments, returns `[]config.Environment`, validates empty names and missing clusters
-- 2026-03-22: `config.InferTier()` exported wrapper for `tierForLabel()` — used by fallback path to set tier from user-entered env name
-- 2026-03-22: Fallback path shows confirmation summary before saving ("Ready to save: ..."); user can decline with `Save to ~/.klarityconfig.yaml? [N]`
-- 2026-03-22: Fallback path validates per-env cluster selection inline (warns + skips empty envs) and fails early if no environments have clusters
-- 2026-03-22: `buildEnvironmentsFromInput()` looks up assignments by original key then trimmed key — handles whitespace in form input
-- 2026-03-21: Warning Events table columns changed from `Reason | Message` to `Category | Why` — Category is the K8s reason, Why is the classified message
-- 2026-03-22: `ResolveNamespaces()` accepts `defaultExclude []string` as 4th param; applied only for mode=all with empty cluster exclude; ignored for include/exclude modes and when cluster has explicit exclude list
-- 2026-03-22: `NoEndpointsClassifier` sets `finding.PodName = s.ServiceName` so table Service column shows actual service name instead of "-"
-- 2026-03-22: `wrapText()` skips the space at break point — second line has no leading space character
-- 2026-03-22: `ContainerErrorClassifier` no longer handles Evicted reason — EventClassifier already handles Evicted events; removing from ContainerErrorClassifier eliminates duplicate findings
-- 2026-03-22: `ListWarningEvents()` makes two API calls — first for `type=Warning`, second for `type=Normal,reason=BackOff`; results merged and deduplicated by (namespace, objectName, reason, message); BackOff events contain image names needed by `classifyImagePullGroup()`; fallback to all-Normal fetch if cluster rejects compound field selector
-- 2026-03-22: Normal/BackOff events included in results even though type=Normal — `classifyImagePullGroup()` needs the image name from `Back-off pulling image "..."` messages; all other Normal event reasons are filtered out in Go
-- 2026-03-23: `pkg/cache` imports `pkg/diagnosis` — cache stores `[]diagnosis.Finding` directly (no intermediate type); JSON serialization works because Category/Severity are string aliases and Finding has all plain fields
-- 2026-03-23: Cache bypassed for `--output json` — ANSI-free JSON path needs no cache headers; cache still written after live scan for next table-mode run
-- 2026-03-23: `Equal()` sorts findings by composite key (`Category+EnvName+ClusterCtx+Namespace+PodName+OneLiner`) before JSON marshal — guards against non-deterministic goroutine ordering
-- 2026-03-23: `--history` uses cobra `NoOptDefVal = "10"` — `--history` alone → 10, `--history 20` → 20, absent → 0 (disabled); checked before config load so no kubeconfig needed for history display
-- 2026-03-23: `assignClusters` is the testable core of the cluster-selection UX — huh form injected via `promptFn func([]string) ([]string, error)`; single-cluster fast path and re-prompt loop both tested without TTY
-- 2026-03-24: AKS/EKS patterns are tried before generic keyword fallback — first match wins per cluster; unrecognised level token in AKS/EKS falls through to generic
-- 2026-03-24: `BestGuessGroup` skips tokens with `len ≤ 2` as too short to be meaningful org names; "my" in "my-dev-cluster" is skipped, "cluster" becomes the org token
-- 2026-03-24: `tierForLabel` now uses `containsWord` — "prod-intel" → critical, "reproduced-cluster" → standard (substring match prevented)
-- 2026-03-24: `parallel_namespaces: 0` in old configs coerced to 10 at runtime — not a validation error; new configs from `klarity init` always have 10
-- 2026-03-24: `Settings.DefaultEnv` is not validated on load (optional field); error is surfaced at scan time only if the named env is absent from config
-- 2026-03-24: `promptDefaultEnv` uses `totalConfigClusters > 10`, not `len(Environments) > 10` — 11 clusters across 2 envs triggers it; 10 clusters across 10 envs does not
-- 2026-03-24: `showDefaultEnvBanner` / large-cluster warning only fires when both `--env` and `--context` are absent — explicit flags always bypass the default_env logic entirely
-- 2026-03-24: Cache is still written after a live scan even when `default_env` is active — the cache reflects whatever subset was actually scanned
-- 2026-03-25: "preprod" entry placed BEFORE "prod" in `envKeywords` — word-boundary check already prevents "prod" from matching inside "preprod", but ordering is explicit for clarity
-- 2026-03-25: `tierForLabel` checks `containsWord(lower, "preprod")` first — "preprod" is critical because it is a production-class environment; this also covers "preprod-ravn" compound names
-- 2026-03-25: `RenderEnvTable` lives in `pkg/output/envtable.go` — shared by both `cmd/env.go` and `cmd/init.go`; `noColor bool` param avoids coupling output to TTY detection
-- 2026-03-25: `klarity env` (alias `ls`) reads config and exits — no scanning, no kubeconfig connection; safe to run offline
-- 2026-03-25: `filterByEnvs` returns a sorted error for all missing env names at once — user sees every typo in one shot instead of fix-and-retry
-- 2026-03-25: `filterByEnv` (single-env, for `default_env`) kept separate from `filterByEnvs` (multi-env, for `--env`) — `default_env` is always one env and doesn't need the multi-error path
-- 2026-03-25: `promptDefaultEnv` cursor defaults to `cfg.Environments[0].Name` — "No default" is last in the option list; user must scroll past real envs to select it, reducing accidental dismissal
-- 2026-03-26: `BuildClientset` delegates to `BuildClientsetWithRateLimit(…, 0, 0)` — existing `ClientsetBuilder` signature unchanged; tests and `ScanAll` continue using `BuildClientset` unmodified
-- 2026-03-26: `api_qps`/`api_burst` use `omitempty` so existing configs without these fields produce clean YAML (no `api_qps: 0` lines); 0-values in old configs are coerced to 50/100 at runtime
-- 2026-03-26: `klogv2.SetLogger(logr.Discard())` in `init()` — placed after `rest.SetDefaultWarningHandler` for clarity; both suppress different layers of client-go noise
-
 ---
 
-**When you finish a feature:** Change `[ ]` to `[x]`, add the date, update "Last updated" and "Last session focus" at the top, and update HANDOFF.md with what to do next.
+**When you finish a feature:** Change `[ ]` to `[x]`, update "Last updated" and "Last session focus", and update HANDOFF.md.

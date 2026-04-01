@@ -44,7 +44,7 @@ var (
 // ── Root command ──────────────────────────────────────────────────────────────
 
 // Version is the CLI version string, set here for --version flag.
-const Version = "1.1.0"
+const Version = "1.1.1"
 
 var rootCmd = &cobra.Command{
 	Use:     "klarity",
@@ -73,9 +73,9 @@ func init() {
 	rootCmd.Flags().StringVar(&flagContext, "context", "",
 		"Limit scan to this cluster context name")
 	rootCmd.Flags().StringVarP(&flagNamespace, "namespace", "n", "",
-		"Scan only these namespace(s), comma-separated (e.g. payments or payments,analytics)")
+		`Scan only these namespace(s), comma-separated. Supports glob wildcards — quote to prevent shell expansion (e.g. -n "billing-*")`)
 	rootCmd.Flags().StringVar(&flagExcludeNs, "exclude-ns", "",
-		"Exclude namespace(s) from scan, comma-separated (e.g. build-ns-1,build-ns-2). Ignored if --namespace is also set.")
+		`Exclude namespace(s) from scan, comma-separated. Supports glob wildcards — quote patterns (e.g. --exclude-ns "test-*"). Ignored if --namespace is also set.`)
 	rootCmd.Flags().StringVar(&flagCategory, "category", "",
 		"Comma-separated list of categories to show (e.g. oom,crashloop,imagepull)")
 	rootCmd.Flags().BoolVar(&flagWatch, "watch", false,

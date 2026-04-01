@@ -344,7 +344,7 @@ func runNewWizard(detected config.DetectedEnvs, allContexts []string, defaults *
 			fmt.Printf("  %-25s → %s\n", label, tierStr)
 		}
 
-		var changeTiers bool
+		changeTiers := true
 		confirm := huh.NewConfirm().
 			Title("Change any tier assignments?").
 			Value(&changeTiers)
@@ -386,7 +386,7 @@ func runNewWizard(detected config.DetectedEnvs, allContexts []string, defaults *
 	printBar()
 
 	cfgPath, _ := config.ConfigPath()
-	var confirmSave bool
+	confirmSave := true
 	savePrompt := huh.NewConfirm().
 		Title(fmt.Sprintf("Save config to %s?", cfgPath)).
 		Value(&confirmSave)
@@ -510,7 +510,7 @@ func runFallbackPath(allContexts []string, defaults *config.Config) (*config.Con
 	fmt.Println()
 
 	cfgPath, _ := config.ConfigPath()
-	var confirmSave bool
+	confirmSave := true
 	confirmPrompt := huh.NewConfirm().
 		Title(fmt.Sprintf("Save to %s?", cfgPath)).
 		Value(&confirmSave)
