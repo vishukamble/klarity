@@ -44,7 +44,7 @@ var (
 // ── Root command ──────────────────────────────────────────────────────────────
 
 // Version is the CLI version string, set here for --version flag.
-const Version = "1.1.1"
+const Version = "1.1.0"
 
 var rootCmd = &cobra.Command{
 	Use:     "klarity",
