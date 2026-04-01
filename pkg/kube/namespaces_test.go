@@ -171,6 +171,106 @@ func TestResolveNamespaces_IncludeMode_DefaultExcludeIgnored(t *testing.T) {
 	}
 }
 
+func TestMatchNamespaces(t *testing.T) {
+	tests := []struct {
+		name       string
+		patterns   []string
+		candidates []string
+		want       []string
+		wantErr    bool
+	}{
+		{
+			name:       "ExactMatch",
+			patterns:   []string{"payments"},
+			candidates: []string{"payments", "analytics"},
+			want:       []string{"payments"},
+		},
+		{
+			name:       "WildcardSuffix",
+			patterns:   []string{"ku*"},
+			candidates: []string{"kube-system", "kube-public", "payments"},
+			want:       []string{"kube-system", "kube-public"},
+		},
+		{
+			name:       "WildcardPrefix",
+			patterns:   []string{"*-system"},
+			candidates: []string{"kube-system", "monitoring", "log-system"},
+			want:       []string{"kube-system", "log-system"},
+		},
+		{
+			name:       "Mixed",
+			patterns:   []string{"payments", "ku*"},
+			candidates: []string{"kube-system", "payments", "analytics"},
+			want:       []string{"kube-system", "payments"},
+		},
+		{
+			name:       "NoMatch",
+			patterns:   []string{"xyz*"},
+			candidates: []string{"payments", "analytics"},
+			want:       nil,
+		},
+		{
+			name:       "ExactNoMatch",
+			patterns:   []string{"missing"},
+			candidates: []string{"payments"},
+			want:       nil,
+		},
+		{
+			name:       "Dedup",
+			patterns:   []string{"*-system", "kube-*"},
+			candidates: []string{"kube-system", "payments"},
+			want:       []string{"kube-system"},
+		},
+		{
+			name:       "OrderPreserved",
+			patterns:   []string{"b*", "a*"},
+			candidates: []string{"alpha", "beta", "gamma"},
+			want:       []string{"alpha", "beta"},
+		},
+		{
+			name:       "InvalidPattern",
+			patterns:   []string{"[invalid"},
+			candidates: []string{"payments"},
+			wantErr:    true,
+		},
+		{
+			name:       "EmptyPatterns",
+			patterns:   []string{},
+			candidates: []string{"payments"},
+			want:       []string{"payments"},
+		},
+		{
+			name:       "EmptyCandidates",
+			patterns:   []string{"ku*"},
+			candidates: []string{},
+			want:       nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := MatchNamespaces(tt.patterns, tt.candidates)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("want %v, got %v", tt.want, got)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("index %d: want %q, got %q", i, tt.want[i], got[i])
+				}
+			}
+		})
+	}
+}
+
 func TestResolveNamespaces_ExcludeMode_DefaultExcludeIgnored(t *testing.T) {
 	// mode=exclude uses cluster's explicit exclude list, not defaultExclude.
 	cs := fake.NewSimpleClientset(

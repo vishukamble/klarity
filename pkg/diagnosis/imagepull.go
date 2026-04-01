@@ -18,7 +18,9 @@ const (
 var imagePullReasons = map[string]bool{
 	"ImagePullBackOff": true,
 	"ErrImagePull":     true,
-	"InvalidImageName": true,
+	// Note: InvalidImageName is intentionally excluded — it is handled by
+	// ContainerErrorClassifier which provides a more specific diagnosis via
+	// classifyImageNameError(). Including it here would produce duplicate findings.
 }
 
 func classifyImagePullMessage(msg string) imagePullSubtype {

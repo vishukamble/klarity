@@ -416,6 +416,16 @@ func TestWrapText(t *testing.T) {
 			maxWidth: 10,
 			want:     "aaaaabbbbb\ncccccdddddeeeee",
 		},
+		{
+			// Regression test for [M3]: multi-byte UTF-8 characters must not be
+			// split mid-rune. Each of these characters is 3 bytes; maxWidth=5 means
+			// the slice must be at rune boundary 5, not byte offset 5 (which would
+			// be mid-rune).
+			name:     "multi-byte runes not split",
+			input:    "αβγδε ζηθικ",
+			maxWidth: 5,
+			want:     "αβγδε\nζηθικ",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -463,9 +473,10 @@ func TestWrapLines(t *testing.T) {
 		{
 			name:  "multi-line wraps each line independently",
 			input: "• first line that is definitely longer than forty chars\n• short line",
-			// "•" is 3 UTF-8 bytes, so s[:40] ends after "definitely" (byte 33 = last space).
+			// "•" is 1 rune (3 UTF-8 bytes). With rune-based width, the first 40 runes
+			// end at "longer r" so the last space before rune 40 is before "than".
 			maxWidth: 40,
-			want:     "• first line that is definitely\nlonger than forty chars\n• short line",
+			want:     "• first line that is definitely longer\nthan forty chars\n• short line",
 		},
 		{
 			name:     "existing newline not double-wrapped",
@@ -481,5 +492,71 @@ func TestWrapLines(t *testing.T) {
 				t.Errorf("wrapLines(%q, %d) =\n  %q\nwant:\n  %q", tt.input, tt.maxWidth, got, tt.want)
 			}
 		})
+	}
+}
+
+// ── HPA row rendering ─────────────────────────────────────────────────────────
+
+func hpaFinding(cpuCurrent, cpuTarget string) diagnosis.Finding {
+	detail := map[string]string{
+		"hpa_name":         "api-hpa",
+		"current_replicas": "10",
+		"max_replicas":     "10",
+		"at_ceiling":       "true",
+	}
+	if cpuCurrent != "" {
+		detail["cpu_current_percent"] = cpuCurrent
+		detail["cpu_target_percent"] = cpuTarget
+	}
+	return diagnosis.Finding{
+		Category:     diagnosis.CategoryHPACeiling,
+		Severity:     diagnosis.SeverityCritical,
+		Namespace:    "default",
+		DetailFields: detail,
+	}
+}
+
+// stripANSI removes ANSI escape sequences so we can compare plain text in tests.
+func stripANSI(s string) string {
+	var out strings.Builder
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			i += 2
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			i++ // consume 'm'
+			continue
+		}
+		out.WriteByte(s[i])
+		i++
+	}
+	return out.String()
+}
+
+func TestHPARow_HighCPU(t *testing.T) {
+	spec := categorySpecs[diagnosis.CategoryHPACeiling]
+	f := hpaFinding("500", "80")
+	row := spec.rowFn(f)
+	// row[3] is the CPU % of Target cell
+	cell := stripANSI(row[3])
+	// 500/80 = 6.25 → "6.2×" (Go uses banker's rounding for %.1f)
+	if !strings.Contains(cell, "6.2×") {
+		t.Errorf("CPU cell %q should contain multiplier 6.2×", cell)
+	}
+	if !strings.Contains(cell, "500%") {
+		t.Errorf("CPU cell %q should contain 500%%", cell)
+	}
+}
+
+func TestHPARow_NormalCPU(t *testing.T) {
+	spec := categorySpecs[diagnosis.CategoryHPACeiling]
+	f := hpaFinding("23", "80")
+	row := spec.rowFn(f)
+	// row[3] is the CPU % of Target cell — low value, no multiplier, no color
+	cell := stripANSI(row[3])
+	if cell != "23%" {
+		t.Errorf("CPU cell = %q, want %q", cell, "23%")
 	}
 }

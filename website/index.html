@@ -13,9 +13,75 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <style>
+        /* ── What's New: 1-2-2-1 grid ── */
+        .new-features-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .new-card--wide { grid-column: span 2; }
+
+        .new-card__tag--perf  { background:rgba(59,130,246,0.1);  color:#60a5fa; border-color:rgba(59,130,246,0.25); }
+        .new-card__tag--init  { background:rgba(163,113,247,0.1); color:#a371f7; border-color:rgba(163,113,247,0.25); }
+        .new-card__tag--ops   { background:rgba(245,158,11,0.1);  color:#f59e0b; border-color:rgba(245,158,11,0.25); }
+        .new-card__tag--slack { background:rgba(74,144,226,0.1);  color:#4a90e2; border-color:rgba(74,144,226,0.25); }
+        .new-card__tag--fix   { background:rgba(63,185,80,0.1);   color:#3fb950; border-color:rgba(63,185,80,0.25); }
+        .new-card__tag--ops2  { background:rgba(248,81,73,0.08);  color:#f85149; border-color:rgba(248,81,73,0.2); }
+
+        .mini-demo {
+            background:#010409; border:1px solid var(--border); border-radius:10px;
+            padding:14px 18px; font-family:var(--mono); font-size:12px;
+            display:flex; flex-direction:column; gap:5px; margin-top:8px;
+        }
+        .md-line { display:flex; gap:10px; align-items:baseline; }
+        .md-prompt { color:var(--text-dim); }
+        .md-cmd  { color:var(--accent); }
+        .md-good { color:#3fb950; }
+        .md-warn { color:#f59e0b; }
+        .md-dim  { color:#484f58; font-size:11px; }
+        .md-div  { height:1px; background:var(--border); margin:4px 0; }
+        .md-red  { color:#f85149; }
+        .md-grp  { color:#94a3b8; font-weight:600; margin-top:2px; }
+        .md-out  { color:#6e7681; }
+        .md-purple { color:#a371f7; }
+        .md-amber  { color:#f59e0b; }
+
+        /* ── Commands Section ── */
+        .commands-section { max-width:1100px; margin:0 auto 8rem; padding:0 2rem; }
+        .commands-grid {
+            display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:2.5rem;
+        }
+        .cmd-group {
+            background:var(--surface); border:1px solid var(--border); border-radius:20px;
+            padding:1.8rem; display:flex; flex-direction:column; gap:10px; transition:var(--transition);
+        }
+        .cmd-group:hover { border-color:var(--text-dim); transform:translateY(-3px); }
+        .cmd-group__label {
+            font-size:0.7rem; text-transform:uppercase; letter-spacing:0.08em;
+            color:var(--accent); background:rgba(88,166,255,0.08);
+            border:1px solid rgba(88,166,255,0.2); padding:3px 10px;
+            border-radius:100px; display:inline-block; width:fit-content; margin-bottom:4px;
+        }
+        .cmd-line {
+            display:flex; align-items:baseline; gap:12px; padding:6px 0;
+            border-bottom:1px solid rgba(255,255,255,0.04);
+        }
+        .cmd-line:last-child { border-bottom:none; }
+        .cmd-line code { font-family:var(--mono); font-size:12.5px; color:var(--accent); min-width:280px; flex-shrink:0; }
+        .cmd-flag { color:#a371f7; }
+        .cmd-val  { color:#f59e0b; }
+        .cmd-line span { font-size:11.5px; color:var(--text-dim); line-height:1.5; }
+
+        @media(max-width:900px){
+            .commands-grid { grid-template-columns:1fr; }
+            .new-features-grid { grid-template-columns:1fr; }
+            .new-card--wide { grid-column:span 1; }
+            .cmd-line code { min-width:180px; font-size:11px; }
+        }
+    </style>
 </head>
 <body>
-
 <div class="spotlight"></div>
 
 <nav>
@@ -27,16 +93,16 @@
         <div class="links">
             <a href="https://github.com/vishukamble/klarity" target="_blank">GitHub</a>
             <a href="#features">Features</a>
+            <a href="#commands">Commands</a>
             <a href="https://github.com/vishukamble/klarity/tree/main/docs" target="_blank">Docs</a>
         </div>
     </div>
 </nav>
 
 <header class="hero">
-    <div class="badge">v1.0.4 Live</div>
+    <div class="badge">v1.1.1 Live</div>
     <h1 class="mitra-headline">One command.<br>Every cluster.<br><span class="highlight">Diagnosed.</span></h1>
     <p class="subtitle">A read-only Kubernetes diagnostic CLI that scans clusters in parallel, extracts root causes from logs, and surfaces the answer in one screen.</p>
-
     <div class="install-box" onclick="copyInstallCmd()">
         <code><span class="prompt">$</span> curl -sSL https://getklarity.dev/install.sh | sh</code>
         <div class="copy-hint">Copy</div>
@@ -44,34 +110,29 @@
 </header>
 
 <main>
+    <!-- Terminal demo -->
     <section class="terminal-section">
         <div class="terminal-window">
             <div class="terminal-header">
                 <div class="dots">
-                    <span class="dot-red"></span>
-                    <span class="dot-yellow"></span>
-                    <span class="dot-green"></span>
+                    <span class="dot-red"></span><span class="dot-yellow"></span><span class="dot-green"></span>
                 </div>
                 <div class="terminal-title">klarity</div>
             </div>
-
             <div class="terminal-body">
                 <div class="term-box amber-border">
-                    <div class="term-white">klarity — 2026-03-21 14:32:07 CST</div>
+                    <div class="term-white">klarity — 2026-03-31 09:14:22 CST</div>
                     <div class="term-dim">Environments: 3 | Clusters: 7 scanned | Issues: 4 found</div>
                 </div>
-
                 <div class="env-row">
                     <span class="status-indicator red"></span>
-                    <span class="term-red">PROD</span>
+                    <span class="term-red">PROD-PAYMENTS</span>
                     <div class="env-line"></div>
                 </div>
-
                 <div class="cluster-row">
-                    <span class="term-slate">── prod-us-east-1 </span>
+                    <span class="term-slate">── gke-payments-prod-uscentral1 </span>
                     <div class="cluster-line"></div>
                 </div>
-
                 <div class="issue-section">
                     <div class="issue-label">💀 <span class="term-white">OOMKilled (1 pod)</span></div>
                     <div class="term-table blue-border">
@@ -79,33 +140,32 @@
                             <span>Namespace</span><span>Pod</span><span>Requests</span><span>Limits</span><span>Restarts</span>
                         </div>
                         <div class="t-row">
-                            <span class="term-blue">ml-serving</span><span>model-inf-8x2-a</span><span>512Mi</span><span>1Gi</span><span class="term-red">14</span>
+                            <span class="term-blue">billing</span><span>invoice-svc-4f1-a</span><span>512Mi</span><span>1Gi</span><span class="term-red">14</span>
                         </div>
                     </div>
                 </div>
-
                 <div class="issue-section">
                     <div class="issue-label">🔥 <span class="term-white">CrashLoopBackOff — Application Errors (2 pods)</span></div>
                     <div class="term-table blue-border">
-                        <div class="t-row t-head" style="grid-template-columns: 150px 180px 100px 1fr;">
+                        <div class="t-row t-head" style="grid-template-columns:150px 180px 100px 1fr;">
                             <span>Namespace</span><span>Pod</span><span>Restarts</span><span>Root Cause (from logs)</span>
                         </div>
-                        <div class="t-row" style="grid-template-columns: 150px 180px 100px 1fr;">
-                            <span class="term-blue">checkout</span><span>cart-svc-3d1-r</span><span>47</span><span class="term-red">FATAL: password auth failed "cartdb"</span>
+                        <div class="t-row" style="grid-template-columns:150px 180px 100px 1fr;">
+                            <span class="term-blue">checkout</span><span>cart-api-7c2-r</span><span>47</span><span class="term-red">FATAL: password auth failed "cartdb"</span>
                         </div>
-                        <div class="t-row" style="grid-template-columns: 150px 180px 100px 1fr;">
-                            <span class="term-blue">notifications</span><span>email-wrk-1a-m</span><span>12</span><span class="term-red">ConnectionRefused: rabbitmq:5672</span>
+                        <div class="t-row" style="grid-template-columns:150px 180px 100px 1fr;">
+                            <span class="term-blue">notifications</span><span>mailer-wrk-3a-m</span><span>12</span><span class="term-red">ConnectionRefused: rabbitmq:5672</span>
                         </div>
                     </div>
                 </div>
-
-                <div class="term-box dim-border" style="margin-bottom: 0;">
-                    <div class="term-dim">Summary: 3 issues in prod | 1 in staging | 0 in dev</div>
+                <div class="term-box dim-border" style="margin-bottom:0;">
+                    <div class="term-dim">Summary: 3 issues in prod-payments | 1 in staging | 0 in dev</div>
                 </div>
             </div>
         </div>
     </section>
 
+    <!-- Features bento -->
     <section id="features" class="features">
         <div class="bento-grid">
             <div class="bento-item tall">
@@ -116,88 +176,189 @@
             <div class="bento-item wide">
                 <div class="card-icon">⚡</div>
                 <h3>Multi-Cluster Native</h3>
-                <p>Go-routines scan your entire kubeconfig in parallel. Environments (prod, staging) are auto-detected by context naming.</p>
+                <p>Goroutines scan your entire kubeconfig in parallel. AKS, EKS, GKE, and local clusters auto-detected and grouped by org and tier.</p>
             </div>
             <div class="bento-item">
                 <div class="card-icon">🛡️</div>
                 <h3>Strictly Read-Only</h3>
-                <p>Perfectly safe for production. klarity only performs `get` and `list` operations.</p>
+                <p>Perfectly safe for production. klarity only performs get and list operations. Never mutates resources.</p>
             </div>
             <div class="bento-item">
                 <div class="card-icon">⚙️</div>
-                <h3>YAML Native</h3>
-                <p>Simple, human-readable config that lives in your home directory.</p>
+                <h3>Smart Init Wizard</h3>
+                <p>Auto-groups clusters from AKS, EKS, and GKE naming conventions. Confirm in seconds, not minutes.</p>
             </div>
         </div>
     </section>
 
-
-<section class="whats-new-section">
-    <div class="section-eyebrow">
-        <span class="eyebrow-line"></span>
-        <span class="eyebrow-text">v1.0.4</span>
-        <span class="eyebrow-line"></span>
-    </div>
-    <h2 class="section-title">What's new</h2>
-    <div class="new-features-grid">
-
-        <div class="new-card new-card--wide">
-            <div class="new-card__tag">Performance</div>
-            <h3 class="new-card__title">Instant results, even mid-interval</h3>
-            <p class="new-card__body">klarity now caches your last scan. Run it anytime — results appear instantly from cache while a fresh scan runs in the background. If anything changed, the screen refreshes automatically.</p>
-            <div class="cache-demo">
-                <div class="cache-demo__line"><span class="cd-prompt">$</span><span class="cd-cmd">klarity</span></div>
-                <div class="cache-demo__line"><span class="cd-dim">klarity scan — 2026-03-23 15:35:59 UTC &nbsp;</span><span class="cd-tag">(cached 4m ago, scanning...)</span></div>
-                <div class="cache-demo__line"><span class="cd-dim">Environments: 1 | Clusters: 1 scanned | Issues: 3 found</span></div>
-                <div class="cache-demo__divider"></div>
-                <div class="cache-demo__line"><span class="cd-check">✓</span><span class="cd-dim">Refreshed — still 3 issues found</span></div>
-            </div>
+    <!-- What's New — 1-2-2-1 layout -->
+    <section class="whats-new-section" style="margin-bottom:6rem;">
+        <div class="section-eyebrow">
+            <span class="eyebrow-line"></span>
+            <span class="eyebrow-text">v1.1.1</span>
+            <span class="eyebrow-line"></span>
         </div>
+        <h2 class="section-title">What's new</h2>
+        <div class="new-features-grid">
 
-        <div class="new-card">
-            <div class="new-card__tag">Observability</div>
-            <h3 class="new-card__title">Scan history, always on</h3>
-            <p class="new-card__body">Every scan is logged to <code class="inline-code">~/.klarity.log</code>. Review past runs with <code class="inline-code">--history</code>.</p>
-            <div class="history-demo">
-                <div class="hd-row hd-row--cmd"><span class="cd-prompt">$</span><span class="cd-cmd">klarity --history</span></div>
-                <div class="hd-row"><span class="hd-time">15:35</span><span class="hd-issues hd-issues--err">3 issues</span><span class="hd-env">prod: 2&nbsp; dev: 1</span></div>
-                <div class="hd-row"><span class="hd-time">15:30</span><span class="hd-issues hd-issues--err">3 issues</span><span class="hd-env">prod: 2&nbsp; dev: 1</span></div>
-                <div class="hd-row"><span class="hd-time">15:25</span><span class="hd-issues hd-issues--ok">0 issues</span><span class="hd-env hd-clean">✓ clean</span></div>
-                <div class="hd-row"><span class="hd-time">15:20</span><span class="hd-issues hd-issues--err">5 issues</span><span class="hd-env">prod: 5</span></div>
-            </div>
-        </div>
-
-        <div class="new-card">
-            <div class="new-card__tag">UX Fix</div>
-            <h3 class="new-card__title">Smarter onboarding</h3>
-            <p class="new-card__body">Single-cluster environments now auto-select during <code class="inline-code">klarity init</code> — no more manual space-toggle on the only available option.</p>
-            <div class="fix-demo">
-                <div class="fix-line fix-before">
-                    <span class="fix-label fix-label--bad">before</span>
-                    <span class="fix-text">Select clusters for dev:<br><span class="fix-indent">›&nbsp; • kubernetes-admin@kubernetes</span><br><span class="fix-indent fix-hint">x toggle • enter submit</span></span>
-                </div>
-                <div class="fix-arrow">↓</div>
-                <div class="fix-line fix-after">
-                    <span class="fix-label fix-label--good">after</span>
-                    <span class="fix-text"><span class="fix-check">✓</span>Only one cluster — auto-selected: kubernetes-admin@kubernetes</span>
+            <!-- Row 1: wide -->
+            <div class="new-card new-card--wide">
+                <div class="new-card__tag new-card__tag--init">Smart Onboarding</div>
+                <h3 class="new-card__title">Dozens of clusters grouped in seconds</h3>
+                <p class="new-card__body">klarity init auto-detects AKS (<code class="inline-code">aks-{org}-{level}-{location}</code>), EKS (<code class="inline-code">{project}-{env}-{role}</code>), and GKE (<code class="inline-code">gke-{app}-{env}-{region}</code>) naming patterns — proposes groupings and only asks about the unmatched ones.</p>
+                <div class="mini-demo">
+                    <div class="md-line"><span class="md-prompt">$</span><span class="md-cmd">klarity init</span></div>
+                    <div class="md-div"></div>
+                    <div class="md-line"><span class="md-grp">Proposed groupings</span></div>
+                    <div class="md-line"><span class="md-good">  prod-payments &nbsp;</span><span style="color:#484f58">(critical)&nbsp;</span><span class="md-warn">4 clusters &nbsp;</span><span class="md-dim">gke-payments-prod-* / aks-payments-prod-*</span></div>
+                    <div class="md-line"><span style="color:#6e7681">  staging-payments</span><span style="color:#484f58">(standard)&nbsp;</span><span class="md-warn">2 clusters &nbsp;</span><span class="md-dim">gke-payments-staging-*</span></div>
+                    <div class="md-line"><span style="color:#6e7681">  dev-platform &nbsp;&nbsp;&nbsp;</span><span style="color:#484f58">(standard)&nbsp;</span><span class="md-warn">3 clusters &nbsp;</span><span class="md-dim">aks-platform-dev-*</span></div>
+                    <div class="md-line"><span style="color:#6e7681">  prod-analytics &nbsp;</span><span style="color:#484f58">(critical)&nbsp;</span><span class="md-warn">2 clusters &nbsp;</span><span class="md-dim">myapp-prod-useast1-eks</span></div>
+                    <div class="md-div"></div>
+                    <div class="md-line"><span class="md-dim">Unmatched (1): legacy-cluster-01 → no suggestion</span></div>
+                    <div class="md-line"><span class="md-dim">Accept these groupings? [Y/n/edit]</span></div>
                 </div>
             </div>
-        </div>
 
-        <div class="new-card new-card--wide">
-            <div class="new-card__tag">Diagnostics</div>
-            <h3 class="new-card__title">New error pattern: missing required flags</h3>
-            <p class="new-card__body">klarity now extracts clean one-line summaries from Go structured logs — including kube-apiserver startup failures caused by missing required flags.</p>
-            <div class="cache-demo">
-                <div class="cache-demo__line"><span class="cd-dim">Raw log:&nbsp;</span><span class="cd-err">E0323 14:37:32 run.go:74] "command failed" err="[service-account-issuer is a required flag, service-account-key-file is a required flag...]"</span></div>
-                <div class="cache-demo__divider"></div>
-                <div class="cache-demo__line"><span class="cd-dim">klarity shows:&nbsp;</span><span class="cd-good">command failed: service-account-issuer is a required flag (and 2 more)</span></div>
+            <!-- Row 2: 2 cards -->
+            <div class="new-card">
+                <div class="new-card__tag new-card__tag--perf">Performance</div>
+                <h3 class="new-card__title">Parallel namespace scanning</h3>
+                <p class="new-card__body">Namespaces within each cluster now scan concurrently. Large clusters finish in a fraction of the time.</p>
+                <div class="mini-demo">
+                    <div class="md-line"><span class="md-prompt">$</span><span class="md-cmd">time klarity -e dev-platform</span></div>
+                    <div class="md-div"></div>
+                    <div class="md-line"><span class="md-dim">before &nbsp;</span><span class="md-red">1m 16s</span><span class="md-dim">&nbsp;(sequential)</span></div>
+                    <div class="md-line"><span class="md-dim">after &nbsp;&nbsp;</span><span class="md-good">14s</span><span class="md-dim">&nbsp;&nbsp;&nbsp;&nbsp;(parallel ×10)</span></div>
+                </div>
             </div>
-        </div>
 
-    </div>
-</section>
-    <br>
+            <div class="new-card">
+                <div class="new-card__tag new-card__tag--ops">Operations</div>
+                <h3 class="new-card__title">Default environment</h3>
+                <p class="new-card__body">Set a default so <code class="inline-code">klarity</code> scans just what matters. Use <code class="inline-code">--no-default</code> for a one-shot full scan.</p>
+                <div class="mini-demo">
+                    <div class="md-line"><span class="md-prompt">$</span><span class="md-cmd">klarity</span></div>
+                    <div class="md-line"><span class="md-warn">Scanning prod-payments (default)</span></div>
+                    <div class="md-line"><span class="md-dim">Use --env to scan other environments</span></div>
+                    <div class="md-div"></div>
+                    <div class="md-line"><span class="md-prompt">$</span><span class="md-cmd">klarity --no-default</span></div>
+                    <div class="md-line"><span class="md-dim">ℹ  Scanning all configured clusters</span></div>
+                </div>
+            </div>
+
+            <!-- Row 3: 2 cards -->
+            <div class="new-card">
+                <div class="new-card__tag new-card__tag--slack">Slack</div>
+                <h3 class="new-card__title">Manual Slack reporting</h3>
+                <p class="new-card__body">Post a full diagnostic report to Slack on demand. Scans critical-tier environments by default.</p>
+                <div class="mini-demo">
+                    <div class="md-line"><span class="md-prompt">$</span><span class="md-cmd">klarity slack send</span></div>
+                    <div class="md-line"><span class="md-dim">Scanning prod-payments, prod-analytics...</span></div>
+                    <div class="md-line"><span class="md-good">✓ Posted to Slack — 8 issues</span></div>
+                    <div class="md-div"></div>
+                    <div class="md-line"><span class="md-prompt">$</span><span class="md-cmd">klarity slack send -e staging-payments</span></div>
+                    <div class="md-line"><span class="md-good">✓ Posted to Slack — 2 issues</span></div>
+                </div>
+            </div>
+
+            <div class="new-card">
+                <div class="new-card__tag new-card__tag--fix">New Filters</div>
+                <h3 class="new-card__title">Wildcard namespaces &amp; multi-env</h3>
+                <p class="new-card__body">Scan multiple environments at once and filter namespaces with glob patterns. Short flags for faster CLI usage.</p>
+                <div class="mini-demo">
+                    <div class="md-line"><span class="md-prompt">$</span><span class="md-cmd">klarity -e <span class="md-amber">prod-payments,prod-analytics</span></span></div>
+                    <div class="md-line"><span class="md-prompt">$</span><span class="md-cmd">klarity -e <span class="md-amber">dev-platform</span> -n <span class="md-amber">"billing-*"</span></span></div>
+                    <div class="md-line"><span class="md-prompt">$</span><span class="md-cmd">klarity -n <span class="md-amber">"*-system"</span></span><span class="md-dim">&nbsp;# suffix glob</span></div>
+                </div>
+            </div>
+
+            <!-- Row 4: wide -->
+            <div class="new-card new-card--wide">
+                <div class="new-card__tag new-card__tag--ops2">Lifecycle</div>
+                <h3 class="new-card__title">Self-update, config review, and clean uninstall</h3>
+                <p class="new-card__body">Keep klarity current with one command. Review and edit your config interactively without touching YAML manually. Remove everything cleanly when needed.</p>
+                <div class="mini-demo">
+                    <div class="md-line"><span class="md-prompt">$</span><span class="md-cmd">klarity update</span></div>
+                    <div class="md-line"><span class="md-dim">Update available: v1.1.0 → v1.1.1</span></div>
+                    <div class="md-line"><span class="md-good">✓ klarity updated to v1.1.1</span></div>
+                    <div class="md-div"></div>
+                    <div class="md-line"><span class="md-prompt">$</span><span class="md-cmd">klarity --config</span></div>
+                    <div class="md-line"><span class="md-dim">Config: ~/.klarityconfig.yaml &nbsp;·&nbsp; 4 environments &nbsp;·&nbsp; 11 clusters &nbsp;·&nbsp; default: prod-payments</span></div>
+                    <div class="md-line"><span class="md-dim">What would you like to do? &nbsp;</span><span class="md-warn">[U]pdate &nbsp; [E]dit &nbsp; [V]alidate &nbsp; [Q]uit</span></div>
+                    <div class="md-div"></div>
+                    <div class="md-line"><span class="md-prompt">$</span><span class="md-cmd">klarity uninstall</span></div>
+                    <div class="md-line"><span class="md-good">✓ removed binary, config, cache, log</span></div>
+                </div>
+            </div>
+
+        </div>
+    </section>
+
+    <!-- Commands Reference -->
+    <section id="commands" class="commands-section">
+        <div class="section-eyebrow">
+            <span class="eyebrow-line"></span>
+            <span class="eyebrow-text">Reference</span>
+            <span class="eyebrow-line"></span>
+        </div>
+        <h2 class="section-title">Commands</h2>
+        <div class="commands-grid">
+
+            <div class="cmd-group">
+                <div class="cmd-group__label">Setup</div>
+                <div class="cmd-line"><code>klarity init</code><span>First-time setup — auto-detects and groups clusters</span></div>
+                <div class="cmd-line"><code>klarity init <span class="cmd-flag">--reset</span></code><span>Reconfigure — backs up existing config first</span></div>
+                <div class="cmd-line"><code>klarity <span class="cmd-flag">--config</span></code><span>Review config and choose to update, edit, or validate</span></div>
+                <div class="cmd-line"><code>klarity update</code><span>Self-update to the latest release</span></div>
+                <div class="cmd-line"><code>klarity uninstall</code><span>Remove binary, config, cache, and logs</span></div>
+            </div>
+
+            <div class="cmd-group">
+                <div class="cmd-group__label">Scanning</div>
+                <div class="cmd-line"><code>klarity</code><span>Scan default environment (or all if none set)</span></div>
+                <div class="cmd-line"><code>klarity <span class="cmd-flag">-e</span> <span class="cmd-val">prod-payments</span></code><span>Scan a specific environment</span></div>
+                <div class="cmd-line"><code>klarity <span class="cmd-flag">-e</span> <span class="cmd-val">prod,staging</span></code><span>Scan multiple environments</span></div>
+                <div class="cmd-line"><code>klarity <span class="cmd-flag">--no-default</span></code><span>One-shot full scan ignoring default_env</span></div>
+                <div class="cmd-line"><code>klarity <span class="cmd-flag">--watch</span></code><span>Continuous scan, refreshes on interval</span></div>
+            </div>
+
+            <div class="cmd-group">
+                <div class="cmd-group__label">Filtering</div>
+                <div class="cmd-line"><code>klarity <span class="cmd-flag">--context</span> <span class="cmd-val">gke-payments-prod-uscentral1</span></code><span>Scan a single cluster</span></div>
+                <div class="cmd-line"><code>klarity <span class="cmd-flag">-n</span> <span class="cmd-val">billing</span></code><span>Scan a specific namespace</span></div>
+                <div class="cmd-line"><code>klarity <span class="cmd-flag">-n</span> <span class="cmd-val">"billing-*"</span></code><span>Wildcard namespace filter (glob)</span></div>
+                <div class="cmd-line"><code>klarity <span class="cmd-flag">--exclude-ns</span> <span class="cmd-val">logging</span></code><span>Exclude namespace(s) from scan</span></div>
+                <div class="cmd-line"><code>klarity <span class="cmd-flag">--category</span> <span class="cmd-val">oom,crashloop</span></code><span>Show only specific issue categories</span></div>
+            </div>
+
+            <div class="cmd-group">
+                <div class="cmd-group__label">History &amp; Output</div>
+                <div class="cmd-line"><code>klarity <span class="cmd-flag">--history</span></code><span>Show last 10 scan summaries</span></div>
+                <div class="cmd-line"><code>klarity <span class="cmd-flag">--history</span> <span class="cmd-val">25</span></code><span>Show last N scan summaries</span></div>
+                <div class="cmd-line"><code>klarity <span class="cmd-flag">-o</span> <span class="cmd-val">json</span></code><span>Output as JSON (for CI or piping)</span></div>
+                <div class="cmd-line"><code>klarity <span class="cmd-flag">--interval</span> <span class="cmd-val">60</span></code><span>Override scan interval in seconds</span></div>
+            </div>
+
+            <div class="cmd-group">
+                <div class="cmd-group__label">Environments</div>
+                <div class="cmd-line"><code>klarity env</code><span>List all environments with cluster names</span></div>
+                <div class="cmd-line"><code>klarity ls</code><span>Alias for klarity env</span></div>
+                <div class="cmd-line"><code>klarity config show</code><span>Show full config including default env</span></div>
+                <div class="cmd-line"><code>klarity config edit</code><span>Open config in $EDITOR</span></div>
+                <div class="cmd-line"><code>klarity config validate</code><span>Validate config and check cluster reachability</span></div>
+            </div>
+
+            <div class="cmd-group">
+                <div class="cmd-group__label">Slack</div>
+                <div class="cmd-line"><code>klarity slack setup</code><span>Configure Slack webhook or bot token</span></div>
+                <div class="cmd-line"><code>klarity slack send</code><span>Post report for critical-tier environments</span></div>
+                <div class="cmd-line"><code>klarity slack send <span class="cmd-flag">-e</span> <span class="cmd-val">prod-payments</span></code><span>Post report for specific environment</span></div>
+                <div class="cmd-line"><code>klarity slack send <span class="cmd-flag">--all</span></code><span>Post report for all environments</span></div>
+            </div>
+
+        </div>
+    </section>
 </main>
 
 <footer>
@@ -214,20 +375,16 @@
 <div id="toast">Copied to clipboard!</div>
 
 <script>
-    // Spotlight Cursor Tracking
     document.addEventListener('mousemove', (e) => {
         const spotlight = document.querySelector('.spotlight');
         spotlight.style.setProperty('--x', e.clientX + 'px');
         spotlight.style.setProperty('--y', e.clientY + 'px');
     });
-
-    // Copy Command Function
     function copyInstallCmd() {
-        const cmd = "curl -sSL https://getklarity.dev/install.sh | sh";
-        navigator.clipboard.writeText(cmd).then(() => {
-            const toast = document.getElementById('toast');
-            toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 2000);
+        navigator.clipboard.writeText("curl -sSL https://getklarity.dev/install.sh | sh").then(() => {
+            const t = document.getElementById('toast');
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 2000);
         });
     }
 </script>

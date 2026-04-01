@@ -56,7 +56,7 @@ func RenderEnvTable(envs []config.Environment, noColor bool) string {
 				return headerStyle
 			}
 			if !noColor && rows[row].critical && (col == 0 || col == 3) {
-				return criticalStyle.Copy().Padding(0, 1)
+				return criticalStyle.Padding(0, 1)
 			}
 			return baseStyle
 		}).

@@ -51,8 +51,34 @@ type DetectedEnvs struct {
 	Unmatched []string
 }
 
+// matchLocalCluster detects well-known local development cluster contexts and
+// returns "dev-local" for any of them, or "" if the context is not local.
+// Recognised patterns:
+//   - "minikube" (exact) or starts with "minikube-"
+//   - "kind" (exact) or starts with "kind-"
+//   - "docker-desktop" or "docker-for-desktop" (exact)
+//   - "rancher-desktop" (exact)
+//   - starts with "k3d-"
+func matchLocalCluster(contextName string) string {
+	lower := strings.ToLower(contextName)
+	switch {
+	case lower == "minikube" || strings.HasPrefix(lower, "minikube-"):
+		return "dev-local"
+	case lower == "kind" || strings.HasPrefix(lower, "kind-"):
+		return "dev-local"
+	case lower == "docker-desktop" || lower == "docker-for-desktop":
+		return "dev-local"
+	case lower == "rancher-desktop":
+		return "dev-local"
+	case strings.HasPrefix(lower, "k3d-"):
+		return "dev-local"
+	}
+	return ""
+}
+
 // DetectEnvironments classifies kubeconfig context names into environment
-// buckets using three strategies in priority order:
+// buckets using four strategies in priority order:
+//  0. Local cluster: minikube, kind, docker-desktop, rancher-desktop, k3d → "dev-local"
 //  1. AKS pattern: aks-{org}-{level}-*  → "{level}-{org}"
 //  2. EKS/AWS pattern: {project}-{level}-* → "{level}-{project}"
 //  3. Generic keyword fallback (existing behavior)
@@ -65,7 +91,10 @@ func DetectEnvironments(contexts []string) (DetectedEnvs, bool) {
 	}
 
 	for _, ctx := range contexts {
-		label := matchAKSPattern(ctx)
+		label := matchLocalCluster(ctx)
+		if label == "" {
+			label = matchAKSPattern(ctx)
+		}
 		if label == "" {
 			label = matchEKSPattern(ctx)
 		}
@@ -196,10 +225,14 @@ func isAllDigits(s string) bool {
 }
 
 // BestGuessGroup attempts to infer a group name for a context that matched no
-// known pattern. It splits on separators, finds an env keyword token to use as
-// the level, and picks the first non-region, non-numeric token as the org.
+// known pattern. Local cluster contexts (minikube, kind, etc.) return "dev-local"
+// directly. Otherwise it splits on separators, finds an env keyword token to
+// use as the level, and picks the first non-region, non-numeric token as the org.
 // Returns "" if no env keyword is found.
 func BestGuessGroup(contextName string) string {
+	if label := matchLocalCluster(contextName); label != "" {
+		return label
+	}
 	lower := strings.ToLower(contextName)
 	parts := strings.FieldsFunc(lower, func(r rune) bool {
 		return r == '-' || r == '_' || r == '.'

@@ -44,7 +44,7 @@ var (
 // ── Root command ──────────────────────────────────────────────────────────────
 
 // Version is the CLI version string, set here for --version flag.
-const Version = "1.0.9"
+const Version = "1.1.1"
 
 var rootCmd = &cobra.Command{
 	Use:     "klarity",
@@ -424,18 +424,20 @@ func scanCluster(
 	var errs []string
 	prefix := fmt.Sprintf("[%s/%s]", env.Name, cluster.Context)
 
-	// Honour --namespace flag: override cluster's namespace filter.
+	// Always resolve the full namespace list first so that wildcard patterns in
+	// --namespace can be matched against the live namespace set.
 	nsFilter := cluster.Namespaces
-	if len(nsInclude) > 0 {
-		nsFilter = config.NamespaceFilter{
-			Mode:    config.NamespaceModeInclude,
-			Include: nsInclude,
-		}
-	}
-
 	namespaces, err := kube.ResolveNamespaces(ctx, cs, nsFilter, cfg.Settings.DefaultNsExclude)
 	if err != nil {
 		return nil, []string{fmt.Sprintf("%s resolve namespaces: %v", prefix, err)}
+	}
+
+	// Apply --namespace patterns (exact or wildcard) against the resolved list.
+	if len(nsInclude) > 0 {
+		namespaces, err = kube.MatchNamespaces(nsInclude, namespaces)
+		if err != nil {
+			return nil, []string{fmt.Sprintf("%s namespace pattern: %v", prefix, err)}
+		}
 	}
 
 	// Apply --exclude-ns filter before any API calls.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -105,19 +106,35 @@ var categorySpecs = map[diagnosis.Category]catSpec{
 	diagnosis.CategoryHPACeiling: {
 		icon:    "📈",
 		label:   "HPA Scaling Issues",
-		headers: []string{"Namespace", "HPA", "Current/Max", "CPU Now", "CPU Target"},
+		headers: []string{"Namespace", "HPA", "Current/Max", "CPU % of Target", "CPU Target"},
 		rowFn: func(f diagnosis.Finding) []string {
 			hpaName := detailOr(f, "hpa_name", "-")
 			cur := detailOr(f, "current_replicas", "?")
 			max := detailOr(f, "max_replicas", "?")
-			cpuNow := detailOr(f, "cpu_current_percent", "-")
-			cpuTgt := detailOr(f, "cpu_target_percent", "-")
-			if cpuNow != "-" {
-				cpuNow += "%"
+			cpuNowRaw := detailOr(f, "cpu_current_percent", "")
+			cpuTgtRaw := detailOr(f, "cpu_target_percent", "")
+
+			cpuNow := "-"
+			if cpuNowRaw != "" {
+				val, errN := strconv.Atoi(cpuNowRaw)
+				if errN == nil {
+					tgtVal, errT := strconv.Atoi(cpuTgtRaw)
+					if errT == nil && val > 200 {
+						cpuNow = fmt.Sprintf("%d%% (%.1f×)", val, float64(val)/float64(tgtVal))
+					} else {
+						cpuNow = fmt.Sprintf("%d%%", val)
+					}
+					if val > 150 {
+						cpuNow = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(cpuNow)
+					}
+				}
 			}
-			if cpuTgt != "-" {
-				cpuTgt += "%"
+
+			cpuTgt := "-"
+			if cpuTgtRaw != "" {
+				cpuTgt = cpuTgtRaw + "%"
 			}
+
 			return []string{
 				f.Namespace,
 				hpaName,
@@ -328,7 +345,7 @@ func RenderReport(
 			if !clusterHasFindings {
 				fmt.Fprintln(w, DimStyle.Render("  ✅ No issues found."))
 				if kubeSystemExcluded(cluster, cfg.Settings.DefaultNsExclude) {
-					fmt.Fprintln(w, DimStyle.Render("   ℹ kube-system excluded — use --include-system to scan control plane components"))
+					fmt.Fprintln(w, DimStyle.Render("   ℹ kube-system excluded — use --namespace kube-system to scan it"))
 				}
 			}
 			fmt.Fprintln(w)
@@ -417,23 +434,31 @@ func countClusters(cfg *config.Config) int {
 // wrapText inserts a single newline at the nearest word boundary before
 // maxWidth. If the string fits within maxWidth or is empty, it is returned
 // unchanged. When no space exists before maxWidth the string is hard-broken.
+// Width is measured in Unicode code points (runes) to handle multi-byte characters.
 func wrapText(s string, maxWidth int) string {
-	if len(s) <= maxWidth {
+	runes := []rune(s)
+	if len(runes) <= maxWidth {
 		return s
 	}
 
-	// Find the last space at or before maxWidth.
-	breakAt := strings.LastIndex(s[:maxWidth], " ")
+	// Find the last space at or before maxWidth (rune-indexed).
+	breakAt := -1
+	for i := maxWidth - 1; i >= 0; i-- {
+		if runes[i] == ' ' {
+			breakAt = i
+			break
+		}
+	}
 	if breakAt <= 0 {
 		// No word boundary — hard-break at maxWidth.
 		breakAt = maxWidth
 	}
 
 	// Skip the space at the break point so the next line has no leading space.
-	if breakAt < len(s) && s[breakAt] == ' ' {
-		return s[:breakAt] + "\n" + s[breakAt+1:]
+	if breakAt < len(runes) && runes[breakAt] == ' ' {
+		return string(runes[:breakAt]) + "\n" + string(runes[breakAt+1:])
 	}
-	return s[:breakAt] + "\n" + s[breakAt:]
+	return string(runes[:breakAt]) + "\n" + string(runes[breakAt:])
 }
 
 // wrapLines applies wrapText to each existing line independently. This is safe

@@ -503,3 +503,38 @@ func TestContainerErrorClassifier(t *testing.T) {
 		})
 	}
 }
+
+// TestInvalidImageName_NoDuplicateFindings is a regression test for [H1]:
+// InvalidImageName pods must produce exactly one finding total across all
+// classifiers (ContainerErrorClassifier only; ImagePullClassifier must skip it).
+func TestInvalidImageName_NoDuplicateFindings(t *testing.T) {
+	results := ScanResults{
+		EnvName:    "prod",
+		ClusterCtx: "ctx",
+		Pods: []kube.PodIssue{
+			{
+				Namespace:     "default",
+				PodName:       "bad-pod",
+				ContainerName: "app",
+				Reason:        "InvalidImageName",
+				Image:         "{{ .Values.image }}:latest",
+				Message:       "couldn't parse image reference",
+			},
+		},
+	}
+
+	containerFindings := ContainerErrorClassifier{}.Classify(results)
+	imagePullFindings := ImagePullClassifier{}.Classify(results)
+
+	total := len(containerFindings) + len(imagePullFindings)
+	if total != 1 {
+		t.Fatalf("expected exactly 1 finding across both classifiers, got %d (container=%d, imagepull=%d)",
+			total, len(containerFindings), len(imagePullFindings))
+	}
+	if len(containerFindings) != 1 {
+		t.Errorf("ContainerErrorClassifier should own the finding, got %d findings", len(containerFindings))
+	}
+	if len(imagePullFindings) != 0 {
+		t.Errorf("ImagePullClassifier should produce 0 findings for InvalidImageName, got %d", len(imagePullFindings))
+	}
+}

@@ -3,6 +3,7 @@ package kube
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -52,4 +53,35 @@ func ResolveNamespaces(ctx context.Context, cs kubernetes.Interface, filter conf
 	default:
 		return nil, fmt.Errorf("unknown namespace filter mode: %q", filter.Mode)
 	}
+}
+
+// MatchNamespaces filters candidates by a set of glob patterns using
+// filepath.Match semantics (* matches any sequence, ? matches one character).
+// Exact names (no wildcard characters) are treated as literal matches.
+// Results are deduplicated and ordered by candidate position, not pattern order.
+// A pattern that matches no candidate is silently ignored (no error).
+// Returns an error only if a pattern is syntactically invalid.
+// If patterns is empty, candidates is returned unchanged (passthrough).
+func MatchNamespaces(patterns []string, candidates []string) ([]string, error) {
+	if len(patterns) == 0 {
+		return candidates, nil
+	}
+
+	seen := make(map[string]bool, len(candidates))
+	var result []string
+
+	for _, candidate := range candidates {
+		for _, pattern := range patterns {
+			matched, err := filepath.Match(pattern, candidate)
+			if err != nil {
+				return nil, fmt.Errorf("invalid namespace pattern %q: %w", pattern, err)
+			}
+			if matched && !seen[candidate] {
+				seen[candidate] = true
+				result = append(result, candidate)
+				break
+			}
+		}
+	}
+	return result, nil
 }

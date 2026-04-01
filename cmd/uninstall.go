@@ -14,7 +14,7 @@ var uninstallCmd = &cobra.Command{
 	Use:   "uninstall",
 	Short: "Remove klarity binary and config",
 	Long: `Removes the klarity binary from PATH and deletes ~/.klarityconfig.yaml.
-Also clears the scan cache (~/.klarity_cache.json).`,
+Also clears the scan cache (~/.klarity_cache) and scan log (~/.klarity.log).`,
 	RunE: runUninstall,
 }
 
@@ -42,7 +42,7 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	}
 
 	// 2. Remove cache file.
-	cacheFile := filepath.Join(homeDir, ".klarity_cache.json")
+	cacheFile := filepath.Join(homeDir, ".klarity_cache")
 	if err := removeFile(cacheFile); err != nil && !os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "  ✗ cache:   %v\n", err)
 	} else if err == nil {
@@ -51,7 +51,7 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Remove scan log file.
-	logFile := filepath.Join(homeDir, ".klarity_log.json")
+	logFile := filepath.Join(homeDir, ".klarity.log")
 	if err := removeFile(logFile); err != nil && !os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "  ✗ log:     %v\n", err)
 	} else if err == nil {

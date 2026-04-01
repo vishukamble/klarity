@@ -135,6 +135,63 @@ func TestHPAClassifier(t *testing.T) {
 		},
 	}
 
+	// ── Multiplier OneLiner tests ────────────────────────────────────────────
+
+	t.Run("TestHPAClassifier_HighOvershoot", func(t *testing.T) {
+		results := ScanResults{
+			HPAs: []kube.HPAIssue{
+				{
+					HPAName:           "api-hpa",
+					MaxReplicas:       10,
+					CurrentReplicas:   10,
+					DesiredReplicas:   20,
+					AtCeiling:         true,
+					CurrentCPUPercent: 500,
+					TargetCPUPercent:  80,
+				},
+			},
+		}
+		findings := HPAClassifier{}.Classify(results)
+		if len(findings) != 1 {
+			t.Fatalf("want 1 finding, got %d", len(findings))
+		}
+		ol := findings[0].OneLiner
+		// 500/80 = 6.25 → "6.2×" (Go uses banker's rounding for %.1f)
+		if !strings.Contains(ol, "6.2×") {
+			t.Errorf("OneLiner %q should contain multiplier 6.2×", ol)
+		}
+		if !strings.Contains(ol, "500%") {
+			t.Errorf("OneLiner %q should contain 500%%", ol)
+		}
+	})
+
+	t.Run("TestHPAClassifier_ModerateOvershoot", func(t *testing.T) {
+		results := ScanResults{
+			HPAs: []kube.HPAIssue{
+				{
+					HPAName:           "web-hpa",
+					MaxReplicas:       10,
+					CurrentReplicas:   10,
+					DesiredReplicas:   12,
+					AtCeiling:         true,
+					CurrentCPUPercent: 89,
+					TargetCPUPercent:  80,
+				},
+			},
+		}
+		findings := HPAClassifier{}.Classify(results)
+		if len(findings) != 1 {
+			t.Fatalf("want 1 finding, got %d", len(findings))
+		}
+		ol := findings[0].OneLiner
+		if strings.Contains(ol, "×") {
+			t.Errorf("OneLiner %q should NOT contain multiplier (89/80 < 2×)", ol)
+		}
+		if !strings.Contains(ol, "89%") {
+			t.Errorf("OneLiner %q should contain 89%%", ol)
+		}
+	})
+
 	c := HPAClassifier{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

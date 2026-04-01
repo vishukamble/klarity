@@ -19,11 +19,20 @@ func (HPAClassifier) Classify(results ScanResults) []Finding {
 
 		switch {
 		case h.AtCeiling && h.CurrentCPUPercent > 0 && h.TargetCPUPercent > 0:
-			oneLiner = fmt.Sprintf(
-				"%s at max replicas (%d/%d); CPU %d%% vs target %d%%",
-				h.HPAName, h.CurrentReplicas, h.MaxReplicas,
-				h.CurrentCPUPercent, h.TargetCPUPercent,
-			)
+			multiply := float64(h.CurrentCPUPercent) / float64(h.TargetCPUPercent)
+			if multiply >= 2.0 {
+				oneLiner = fmt.Sprintf(
+					"%s at max replicas (%d/%d); CPU at %.1f× target (%d%% vs %d%%)",
+					h.HPAName, h.CurrentReplicas, h.MaxReplicas,
+					multiply, h.CurrentCPUPercent, h.TargetCPUPercent,
+				)
+			} else {
+				oneLiner = fmt.Sprintf(
+					"%s at max replicas (%d/%d); CPU %d%% vs target %d%%",
+					h.HPAName, h.CurrentReplicas, h.MaxReplicas,
+					h.CurrentCPUPercent, h.TargetCPUPercent,
+				)
+			}
 			severity = SeverityCritical
 		case h.AtCeiling:
 			oneLiner = fmt.Sprintf(

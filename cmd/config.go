@@ -133,14 +133,8 @@ func runConfigEdit(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("editor exited with error: %w", err)
 	}
 
-	// Validate after editing.
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Config has errors: %v\n", err)
-		fmt.Fprintln(os.Stderr, "Run 'klarity config edit' to fix, or 'klarity init' to start over.")
-		return nil
-	}
-	if err := cfg.Validate(); err != nil {
+	// Validate after editing (Load calls Validate internally).
+	if _, err := config.Load(cfgPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Config has errors: %v\n", err)
 		fmt.Fprintln(os.Stderr, "Run 'klarity config edit' to fix, or 'klarity init' to start over.")
 		return nil

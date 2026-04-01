@@ -77,7 +77,9 @@ func TestImagePullClassifier(t *testing.T) {
 			wantSubtype: string(imagePullRegistry),
 		},
 		{
-			name: "InvalidImageName",
+			// InvalidImageName is intentionally NOT handled by ImagePullClassifier —
+			// ContainerErrorClassifier provides a more specific diagnosis. Expect 0.
+			name: "InvalidImageName not handled here",
 			results: ScanResults{
 				Pods: []kube.PodIssue{
 					{
@@ -89,8 +91,7 @@ func TestImagePullClassifier(t *testing.T) {
 					},
 				},
 			},
-			wantLen:     1,
-			wantSubtype: string(imagePullUnknown),
+			wantLen: 0,
 		},
 		{
 			name: "multiple failures mixed",

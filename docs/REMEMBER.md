@@ -4,9 +4,9 @@
 
 ## Current State
 
-**Last updated:** 2026-03-26
-**Last session focus:** Slack refactor — manual send only, simplified setup, grouped FormatSummary (v1.0.9)
-**Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass, 276 test cases)
+**Last updated:** 2026-03-31
+**Last session focus:** HPA CPU display improvements + klarity update command (v1.1.1)
+**Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass, 313 test cases)
 
 ## Project Initialization
 
@@ -128,6 +128,21 @@ Also added:
 - [x] **`--no-default` flag** — `cmd/root.go`: `--no-default` bool flag; when set, `default_env` in config is ignored (notice printed to stderr), `filteredScan=true` (bypasses cache). 1 new test `TestNoDefaultFlag`. (2026-03-26)
 - [x] **Version bump** — `1.0.9`. (2026-03-26)
 
+## Session Additions (2026-03-26, v1.1.0 — audit bug fixes)
+
+- [x] **[C1] Fix uninstall file paths** — `cmd/uninstall.go`: cache path corrected from `~/.klarity_cache.json` → `~/.klarity_cache`; log path corrected from `~/.klarity_log.json` → `~/.klarity.log`; `Long` help text updated to match. (2026-03-26)
+- [x] **[H1] Fix InvalidImageName duplicate findings** — `pkg/diagnosis/imagepull.go`: removed `"InvalidImageName"` from `imagePullReasons`; `ContainerErrorClassifier` is now the sole handler via `classifyImageNameError()`. Updated `imagepull_test.go` (wantLen 1→0). Added `TestInvalidImageName_NoDuplicateFindings` regression test in `container_test.go`. (2026-03-26)
+- [x] **[M1] Fix non-existent `--include-system` flag reference** — `pkg/output/table.go:331`: changed hint from `"use --include-system to scan control plane components"` to `"use --namespace kube-system to scan it"`. (2026-03-26)
+- [x] **[M3] Fix `wrapText` byte vs rune indexing** — `pkg/output/table.go`: `wrapText()` now uses `[]rune(s)` for length check and slicing, preventing mid-rune splits on multi-byte characters. Added regression test case in `output_test.go`. Updated existing `TestWrapLines` expectation for `•`-prefixed lines (rune-based break falls 2 runes later than byte-based). (2026-03-26)
+- [x] **Version bump** — `cmd/root.go`: `1.0.9` → `1.1.0` (first audit-driven release). (2026-03-26)
+
+## Session Additions (2026-03-26, audit low-priority cleanup)
+
+- [x] **[L1] Deprecated `.Copy()` removed** — `pkg/output/envtable.go`: `criticalStyle.Copy().Padding(0,1)` → `criticalStyle.Padding(0,1)`; lipgloss styles are value types in v1.x, Copy() is a no-op and deprecated. (2026-03-26)
+- [x] **[L2] Dead `ScanAll` + `ScanFunc` deleted** — `pkg/kube/client.go`: removed `ScanFunc` type and `ScanAll` function (used errgroup, violating WaitGroup+semaphore architecture rule; never called from production — `gatherFindings` in root.go handles all scanning); removed `errgroup`, `context`, and `pkg/config` imports. `pkg/kube/client_test.go` deleted (only tested ScanAll). −7 tests. (2026-03-26)
+- [x] **[L3] `RenderEnvTable` tests added** — `pkg/output/envtable_test.go`: 7 table-driven tests — empty input (nil + empty slice), single standard env, single critical env noColor=true, single critical env noColor=false, multiple envs, multi-line context names, headers present. +7 tests. (2026-03-26)
+- [x] **[L4] Redundant `cfg.Validate()` removed** — `cmd/config.go` `runConfigEdit`: removed explicit `cfg.Validate()` call after `config.Load()` — `Load()` already calls `Validate()` internally and returns the error. Simplified to single `if _, err := config.Load(cfgPath)` check. (2026-03-26)
+
 ## Session Additions (2026-03-26, Slack refactor)
 
 - [x] **Remove auto-post Slack** — `cmd/root.go`: removed `postToSlack()` helper and both call sites (cache-hit path + `doScan`); removed `notifications` import from root.go. (2026-03-26)
@@ -138,6 +153,13 @@ Also added:
 - [x] **Simplify `klarity slack setup`** — `cmd/slack.go`: removed severity and on_issues_only steps; now 4 steps only: mode → credentials → test connection → save. (2026-03-26)
 - [x] **`klarity slack send`** — `cmd/slack.go`: new subcommand; default = critical-tier envs only; `--env` = named envs; `--all` = everything; calls `gatherFindings` + `SendSummary`; prints "No issues found" if empty. `filterByCriticalTier()` helper added. (2026-03-26)
 - [x] **Updated tests** — `pkg/notifications/slack_test.go`: removed `TestFilterBySeverity`, `TestSendSummary_MinSeverityFilter`, `TestSendSummary_OnIssuesOnly_NoFindings`; updated `FormatSummary` tests for new grouped format; added `TestSendSummary_PostsWithNoFindings`, `TestSendSummary_AllFindingsPosted`. `cmd/root_test.go`: added `TestSlackSendFiltersCriticalByDefault`. (2026-03-26)
+
+## Session Additions (2026-03-31, v1.1.1)
+
+- [x] **Wildcard namespace matching** — `pkg/kube/namespaces.go`: `MatchNamespaces(patterns, candidates []string) ([]string, error)` uses `filepath.Match` semantics; exact names are literal matches; results deduplicated and ordered by candidate position; invalid patterns return error with pattern name; empty patterns passthrough unchanged. `cmd/root.go` `scanCluster`: replaced old nsInclude-override-filter approach with always-resolve-then-MatchNamespaces; cluster's own filter applied first (API call), then `MatchNamespaces` filters the live list. 11 new tests in `namespaces_test.go`. Version bumped to `1.1.1`. (2026-03-31)
+- [x] **Local cluster detection** — `pkg/config/detect.go`: `matchLocalCluster(contextName)` recognises minikube (exact + `minikube-` prefix), kind (exact + `kind-` prefix), `docker-desktop`, `docker-for-desktop`, `rancher-desktop`, and `k3d-` prefix → returns `"dev-local"`; runs as Strategy 0 before AKS/EKS/generic in `DetectEnvironments`; `BestGuessGroup` also calls `matchLocalCluster` first; `tierForLabel("dev-local")` → standard. Updated `TestDetectEnvironments_DockerDesktop` (previously expected unmatched; now expects `dev-local`). 13 new tests: `TestMatchLocalCluster` (10 subtests), `TestDetectEnvironments_LocalClusters`, `TestTierForLabel_DevLocal`. (2026-03-31)
+- [x] **`klarity update` command** — `cmd/update.go`: fetches latest version from GitHub releases API (`GET …/releases/latest`, parses `tag_name`); compares with `Version` constant; if already current, prints "✓ already latest" and exits; otherwise downloads `klarity_{os}_{arch}.tar.gz` tarball, extracts binary via `archive/tar` + `compress/gzip`, atomically replaces current binary (write to temp then `os.Rename`); permission denied → clear message "try: sudo klarity update"; `updateHTTPClient` interface injectable for tests. `cmd/init.go`: auto-backup on `--reset` — copies `~/.klarityconfig.yaml` → `~/.klarityconfig.yaml.bak` before wizard runs; `cfgPath` variable scope unified so step 4 (save) reuses the resolved path. 7 new tests: `TestParseLatestVersion`, `TestParseLatestVersion_NoV`, `TestParseLatestVersion_NonOK`, `TestAlreadyUpToDate`, `TestBuildDownloadURL` (4 subtests). (2026-03-31)
+- [x] **HPA CPU display improvement** — `pkg/output/table.go`: column header "CPU Now" → "CPU % of Target"; when parsed cpu_current_percent > 200 appends multiplier `"Xval% (Y.Y×)"` using `strconv.Atoi` + `%.1f` formatting; when > 150 renders cell in red via `lipgloss.Color("9")`. `pkg/diagnosis/hpa.go`: AtCeiling + CPU OneLiner uses multiplier format when `current/target >= 2.0` ("6.2× target"), otherwise keeps original "X% vs target Y%" format. Note: `%.1f` of 6.25 = "6.2" (Go banker's rounding). 4 new tests: `TestHPAClassifier_HighOvershoot`, `TestHPAClassifier_ModerateOvershoot`, `TestHPARow_HighCPU`, `TestHPARow_NormalCPU`. (2026-03-31)
 
 ## Known Issues / Blockers
 

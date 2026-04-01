@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,14 +35,21 @@ func init() {
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
-	// ── 0. Overwrite guard ───────────────────────────────────────────────
-	if !flagReset {
-		cfgPath, err := config.ConfigPath()
-		if err == nil {
-			if _, statErr := os.Stat(cfgPath); statErr == nil {
+	// ── 0. Overwrite guard + backup ─────────────────────────────────────
+	cfgPath, pathErr := config.ConfigPath()
+	if pathErr == nil {
+		if _, statErr := os.Stat(cfgPath); statErr == nil {
+			if !flagReset {
 				fmt.Printf("Config already exists at %s\n", cfgPath)
 				fmt.Println("Run 'klarity init --reset' to overwrite it.")
 				return nil
+			}
+			// --reset: back up the existing config before overwriting.
+			bakPath := cfgPath + ".bak"
+			if err := copyFile(cfgPath, bakPath); err != nil {
+				fmt.Fprintf(os.Stderr, "⚠️  Could not back up config: %v\n", err)
+			} else {
+				fmt.Printf("Previous config backed up to %s\n", bakPath)
 			}
 		}
 	}
@@ -99,9 +107,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// ── 4. Save ─────────────────────────────────────────────────────────
-	cfgPath, err := config.ConfigPath()
-	if err != nil {
-		return err
+	if pathErr != nil {
+		// cfgPath was undetermined at startup (unusual) — re-resolve now.
+		var err error
+		cfgPath, err = config.ConfigPath()
+		if err != nil {
+			return err
+		}
 	}
 	if err := config.Save(cfg, cfgPath); err != nil {
 		return fmt.Errorf("saving config: %w", err)
@@ -666,4 +678,24 @@ func hasKubeloginExec(kubeConfig *clientcmdapi.Config, contexts []string) bool {
 		}
 	}
 	return false
+}
+
+// copyFile copies src to dst, creating dst if it does not exist.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }

@@ -265,17 +265,17 @@ func TestBuildManualConfig_EmptyClustersSkipped(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestDetectEnvironments_DockerDesktop(t *testing.T) {
-	// docker-desktop has no environment keyword — must trigger fallback.
+	// docker-desktop is now recognised as a local cluster → "dev-local".
 	contexts := []string{"docker-desktop"}
 	result, ok := DetectEnvironments(contexts)
-	if ok {
-		t.Fatal("expected ok=false for docker-desktop (no env keyword)")
+	if !ok {
+		t.Fatal("expected ok=true for docker-desktop (local cluster detection)")
 	}
-	if len(result.Envs) != 0 {
-		t.Errorf("expected no detected envs, got %v", result.Envs)
+	if len(result.Unmatched) != 0 {
+		t.Errorf("expected no unmatched, got %v", result.Unmatched)
 	}
-	if len(result.Unmatched) != 1 || result.Unmatched[0] != "docker-desktop" {
-		t.Errorf("unmatched: want [docker-desktop], got %v", result.Unmatched)
+	if ctxs, exists := result.Envs["dev-local"]; !exists || len(ctxs) != 1 || ctxs[0] != "docker-desktop" {
+		t.Errorf("expected docker-desktop in dev-local, got envs=%v", result.Envs)
 	}
 }
 
@@ -596,6 +596,59 @@ func TestHasEnvKeyword(t *testing.T) {
 // ──────────────────────────────────────────────
 // helpers
 // ──────────────────────────────────────────────
+
+// ──────────────────────────────────────────────
+// matchLocalCluster
+// ──────────────────────────────────────────────
+
+func TestMatchLocalCluster(t *testing.T) {
+	tests := []struct {
+		context string
+		want    string
+	}{
+		{"minikube", "dev-local"},
+		{"minikube-m02", "dev-local"},
+		{"kind-my-cluster", "dev-local"},
+		{"kind", "dev-local"},
+		{"docker-desktop", "dev-local"},
+		{"docker-for-desktop", "dev-local"},
+		{"rancher-desktop", "dev-local"},
+		{"k3d-local", "dev-local"},
+		// should NOT match — cloud cluster names
+		{"aks-intel-dev-cus-app", ""},
+		{"prod-us-east-1", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.context, func(t *testing.T) {
+			got := matchLocalCluster(tc.context)
+			if got != tc.want {
+				t.Errorf("matchLocalCluster(%q) = %q, want %q", tc.context, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDetectEnvironments_LocalClusters(t *testing.T) {
+	contexts := []string{"minikube", "kind-test", "aks-intel-dev-cus-app"}
+	result, ok := DetectEnvironments(contexts)
+	if !ok {
+		t.Fatal("expected ok=true — all contexts should match")
+	}
+	if len(result.Unmatched) != 0 {
+		t.Errorf("expected no unmatched, got %v", result.Unmatched)
+	}
+	// minikube and kind-test → dev-local
+	assertContextsInEnv(t, result, "dev-local", []string{"minikube", "kind-test"})
+	// aks-intel-dev-cus-app → dev-intel (AKS pattern)
+	assertContextsInEnv(t, result, "dev-intel", []string{"aks-intel-dev-cus-app"})
+}
+
+func TestTierForLabel_DevLocal(t *testing.T) {
+	got := tierForLabel("dev-local")
+	if got != TierStandard {
+		t.Errorf("tierForLabel(%q) = %q, want %q", "dev-local", got, TierStandard)
+	}
+}
 
 func assertContextsInEnv(t *testing.T, result DetectedEnvs, label string, want []string) {
 	t.Helper()

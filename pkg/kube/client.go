@@ -4,7 +4,6 @@
 package kube
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,11 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"golang.org/x/sync/errgroup"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
-
-	"github.com/vishukamble/klarity/pkg/config"
 )
 
 // KubeloginVersion holds a parsed semantic version from kubelogin --version.
@@ -96,14 +92,6 @@ func CheckKubeloginVersion() string {
 // returns a fake.Clientset without needing a live cluster or kubeconfig file.
 type ClientsetBuilder func(kubeconfigPath, contextName string) (kubernetes.Interface, error)
 
-// ScanFunc is invoked once per configured cluster by ScanAll.
-// env and cluster describe which cluster is being scanned; cs is the live
-// (or fake, in tests) Kubernetes client.
-//
-// ctx is cancelled if any other cluster's ScanFunc returns a non-nil error.
-// Implementations should respect ctx for early cancellation.
-type ScanFunc func(ctx context.Context, env config.Environment, cluster config.Cluster, cs kubernetes.Interface) error
-
 // DefaultKubeconfigPath returns $KUBECONFIG if set, otherwise
 // ~/.kube/config (the kubectl default).
 func DefaultKubeconfigPath() string {
@@ -169,61 +157,3 @@ func BuildClientsetWithRateLimit(kubeconfigPath, contextName string, qps float32
 	return cs, nil
 }
 
-// ScanAll fans out fn across every cluster in cfg in parallel, bounded by
-// cfg.Settings.ParallelClusters. It blocks until all goroutines finish and
-// returns the first non-nil error (if any). On error, the shared context is
-// cancelled so other running ScanFuncs can exit early.
-//
-// builder is called once per cluster to obtain a client. Inject a fake
-// builder in tests.
-func ScanAll(
-	ctx context.Context,
-	cfg *config.Config,
-	kubeconfigPath string,
-	builder ClientsetBuilder,
-	fn ScanFunc,
-) error {
-	if builder == nil {
-		builder = BuildClientset
-	}
-
-	limit := cfg.Settings.ParallelClusters
-	if limit < 1 {
-		limit = 1
-	}
-
-	// Semaphore channel: at most `limit` goroutines active at once.
-	sem := make(chan struct{}, limit)
-
-	g, gctx := errgroup.WithContext(ctx)
-
-	for _, env := range cfg.Environments {
-		for _, cluster := range env.Clusters {
-			// Capture loop variables for the goroutine closure.
-			env := env
-			cluster := cluster
-
-			g.Go(func() error {
-				// Acquire slot.
-				select {
-				case sem <- struct{}{}:
-				case <-gctx.Done():
-					return gctx.Err()
-				}
-				defer func() { <-sem }()
-
-				cs, err := builder(kubeconfigPath, cluster.Context)
-				if err != nil {
-					return fmt.Errorf("[%s/%s] %w", env.Name, cluster.Context, err)
-				}
-
-				if err := fn(gctx, env, cluster, cs); err != nil {
-					return fmt.Errorf("[%s/%s] %w", env.Name, cluster.Context, err)
-				}
-				return nil
-			})
-		}
-	}
-
-	return g.Wait()
-}

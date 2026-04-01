@@ -4,18 +4,40 @@
 
 ## What To Do Next
 
-All core features are implemented. Next session should focus on polish and hardening.
+All core features are implemented. All audit bugs fixed. Next session should focus on UX hardening.
 
 ### High priority
 
-- **`klarity uninstall`** — `cmd/uninstall.go` is staged in git but unreviewed; should remove `~/.klarityconfig.yaml`, `~/.klarity_cache`, `~/.klarity.log` with confirmation prompt
-- **`klarity env` output test** — `pkg/output/envtable_test.go`: add table-driven tests for `RenderEnvTable` — empty input, single env, critical row colouring (noColor=true path), multi-line context names; the function is currently untested
+- **`klarity uninstall` confirmation prompt** — `cmd/uninstall.go` now has correct file paths (fixed in v1.1.0) but still lacks an interactive confirmation before deleting files; add a `huh.Confirm` prompt before any removal
 
-### Medium priority
+### Done this session (v1.1.1)
 
-- **Version bump** — currently `1.0.9`; bump to `1.1.0` when `klarity uninstall` ships (first new command since initial release)
+- ✅ `MatchNamespaces(patterns, candidates)` added to `pkg/kube/namespaces.go` — filepath.Match semantics, dedup by candidate order, passthrough on empty patterns, error on bad pattern
+- ✅ `scanCluster` in `cmd/root.go` updated — always resolves live namespace list first, then applies `MatchNamespaces` for `--namespace` patterns
+- ✅ 11 new tests in `pkg/kube/namespaces_test.go` covering exact, wildcard suffix/prefix, mixed, no-match, dedup, order-preserved, invalid, empty patterns, empty candidates
+- ✅ Version bumped to `1.1.1`
+- ✅ `matchLocalCluster` added to `pkg/config/detect.go` — Strategy 0 before AKS/EKS/generic; minikube, kind, docker-desktop, docker-for-desktop, rancher-desktop, k3d- prefix → "dev-local"; `BestGuessGroup` also calls it first; `TestDetectEnvironments_DockerDesktop` updated; 13 new tests
+- ✅ `klarity update` command — `cmd/update.go`; `cmd/update_test.go` (7 tests); GitHub API + tarball download + atomic binary replacement; injectable `updateHTTPClient` interface
+- ✅ `klarity init --reset` auto-backup — copies config to `.bak` before wizard; `cfgPath` variable unified across function
+- ✅ HPA CPU display — column "CPU Now" → "CPU % of Target"; multiplier suffix when > 200%; red cell when > 150%; OneLiner multiplier when ≥ 2× overshoot; 4 new tests
 
-### Done this session (v1.0.9)
+### Previously done (v1.1.0 — low-priority audit cleanup)
+
+- ✅ [L1] Deprecated `criticalStyle.Copy()` removed from `pkg/output/envtable.go`
+- ✅ [L2] Dead `ScanAll` function and `ScanFunc` type deleted from `pkg/kube/client.go`; `pkg/kube/client_test.go` deleted (only tested dead code); `errgroup`/`context`/`config` imports removed
+- ✅ [L3] `pkg/output/envtable_test.go` created — 7 tests for `RenderEnvTable` (empty, standard env, critical noColor, critical with color, multi-env, multi-line contexts, headers)
+- ✅ [L4] Redundant `cfg.Validate()` removed from `runConfigEdit` — `config.Load()` already validates
+
+### Previously done this session (v1.1.0 — CRITICAL/HIGH/MEDIUM audit fixes)
+
+- ✅ [C1] Uninstall cache/log file paths corrected (`~/.klarity_cache`, `~/.klarity.log`)
+- ✅ [H1] `InvalidImageName` duplicate findings eliminated (removed from `ImagePullClassifier`)
+- ✅ [M1] Non-existent `--include-system` flag reference replaced with valid `--namespace kube-system`
+- ✅ [M2] Uninstall help text updated to show correct file paths
+- ✅ [M3] `wrapText` switched from byte to rune indexing; regression test added
+- ✅ Version bumped to `1.1.0`
+
+### Previously done (v1.0.9)
 
 - ✅ `config show` now displays `default_env` when set
 - ✅ `klarity init --reset` flag guards against silent overwrite
@@ -76,6 +98,51 @@ gatherFindings()
 - CLAUDE.md: classifiers return data, output layer is only formatter; never mutate K8s resources
 
 ## Previous Session Summary
+
+**2026-03-31 — Session 38: Wildcard namespace matching + local cluster detection (v1.1.1)**
+
+| Item | Files | Summary |
+|---|---|---|
+| `MatchNamespaces` | `pkg/kube/namespaces.go` | New exported function; `filepath.Match` semantics; dedup by candidate order; passthrough on empty patterns; error on malformed pattern |
+| `scanCluster` wiring | `cmd/root.go` | Always resolve live namespace list first (cluster filter applied); then `MatchNamespaces` filters by `--namespace` patterns; `applyNamespaceFilters` unchanged (still handles `--exclude-ns`) |
+| Namespace tests | `pkg/kube/namespaces_test.go` | 11 new subtests: ExactMatch, WildcardSuffix, WildcardPrefix, Mixed, NoMatch, ExactNoMatch, Dedup, OrderPreserved, InvalidPattern, EmptyPatterns, EmptyCandidates |
+| `matchLocalCluster` | `pkg/config/detect.go` | Strategy 0 before AKS/EKS/generic; minikube/kind/docker-desktop/docker-for-desktop/rancher-desktop/k3d- → "dev-local"; `BestGuessGroup` calls it first; `TestDetectEnvironments_DockerDesktop` updated |
+| Local cluster tests | `pkg/config/detect_test.go` | `TestMatchLocalCluster` (10), `TestDetectEnvironments_LocalClusters`, `TestTierForLabel_DevLocal`; updated `TestDetectEnvironments_DockerDesktop` |
+| `klarity update` | `cmd/update.go` | GitHub API → version compare → tarball download + tar/gzip extract → atomic `os.Rename`; `updateHTTPClient` interface for testing |
+| `init --reset` backup | `cmd/init.go` | Copies config to `.bak` before wizard; `cfgPath` variable scope unified |
+| Update tests | `cmd/update_test.go` | `TestParseLatestVersion`, `_NoV`, `_NonOK`, `TestAlreadyUpToDate`, `TestBuildDownloadURL` (4 subtests) |
+| HPA column rename | `pkg/output/table.go` | "CPU Now" → "CPU % of Target"; multiplier when val > 200 (`"X% (Y.Y×)"`); red cell when > 150 |
+| HPA OneLiner | `pkg/diagnosis/hpa.go` | `≥ 2.0×` overshoot → "CPU at Y.Y× target (X% vs Z%)"; else existing format |
+| HPA tests | `pkg/diagnosis/hpa_test.go`, `pkg/output/output_test.go` | `TestHPAClassifier_HighOvershoot`, `_ModerateOvershoot`, `TestHPARow_HighCPU`, `_NormalCPU`; `stripANSI` helper |
+| Version bump | `cmd/root.go` | `1.1.0` → `1.1.1` |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (313 tests)
+
+**2026-03-26 — Session 37: Low-priority audit cleanup (v1.1.0)**
+
+| Item | Files | Fix |
+|---|---|---|
+| [L1] Deprecated `.Copy()` | `pkg/output/envtable.go:59` | `criticalStyle.Copy().Padding(0,1)` → `criticalStyle.Padding(0,1)` |
+| [L2] Delete dead `ScanAll` | `pkg/kube/client.go`, `pkg/kube/client_test.go` | Deleted `ScanFunc` type, `ScanAll` function, test file; removed `errgroup`/`context`/`config` imports |
+| [L3] Add `RenderEnvTable` tests | `pkg/output/envtable_test.go` (new) | 7 tests: empty, standard env, critical noColor, critical color, multi-env, multi-context, headers |
+| [L4] Redundant `cfg.Validate()` | `cmd/config.go:143-147` | Removed extra `Validate()` call after `config.Load()` (Load already validates) |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (270 tests, 8 packages)
+
+**2026-03-26 — Session 36: Audit bug fixes (v1.1.0)**
+
+| Bug | Files | Fix |
+|---|---|---|
+| [C1] Uninstall wrong cache path | `cmd/uninstall.go:45` | `~/.klarity_cache.json` → `~/.klarity_cache` |
+| [C1] Uninstall wrong log path | `cmd/uninstall.go:54` | `~/.klarity_log.json` → `~/.klarity.log` |
+| [H1] InvalidImageName duplicate findings | `pkg/diagnosis/imagepull.go:21` | Removed `"InvalidImageName"` from `imagePullReasons`; `ContainerErrorClassifier` is sole handler |
+| [M1] Non-existent `--include-system` flag | `pkg/output/table.go:331` | Changed hint to valid `--namespace kube-system` |
+| [M2] Uninstall help text wrong paths | `cmd/uninstall.go:17` | Updated `Long` string |
+| [M3] `wrapText` byte vs rune indexing | `pkg/output/table.go:420` | Switched to `[]rune(s)` indexing |
+| Regression tests | `pkg/diagnosis/container_test.go`, `pkg/output/output_test.go` | `TestInvalidImageName_NoDuplicateFindings`; multi-byte rune wrapText test |
+| Version bump | `cmd/root.go` | `1.0.9` → `1.1.0` |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (277 tests)
 
 **2026-03-26 — Session 35: Slack refactor — manual send, simplified setup, grouped FormatSummary (v1.0.9)**
 
