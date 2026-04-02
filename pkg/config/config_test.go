@@ -219,6 +219,12 @@ func TestValidate_ScanIntervalTooLow(t *testing.T) {
 	assertValidateError(t, cfg, "scan_interval_seconds must be at least 1")
 }
 
+func TestValidate_NegativeParallelNamespaces(t *testing.T) {
+	cfg := validConfig()
+	cfg.Settings.ParallelNamespaces = -1
+	assertValidateError(t, cfg, "parallel_namespaces must be >= 0")
+}
+
 // ──────────────────────────────────────────────
 // Save + Load round-trip tests
 // ──────────────────────────────────────────────

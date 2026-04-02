@@ -106,6 +106,9 @@ func classifyImagePullGroup(events []kube.EventIssue, objectName string) string 
 // bestEventForObject picks the most informative non-image-pull event from
 // a group. Used for events that aren't handled by classifyImagePullGroup.
 func bestEventForObject(events []kube.EventIssue) kube.EventIssue {
+	if len(events) == 0 {
+		return kube.EventIssue{}
+	}
 	for _, ev := range events {
 		if messageHasSignal(ev.Message) {
 			return ev

@@ -538,3 +538,24 @@ func TestInvalidImageName_NoDuplicateFindings(t *testing.T) {
 		t.Errorf("ImagePullClassifier should produce 0 findings for InvalidImageName, got %d", len(imagePullFindings))
 	}
 }
+
+func TestContainerErrorClassifier_KindField(t *testing.T) {
+	results := ScanResults{
+		Pods: []kube.PodIssue{
+			{
+				Namespace:     "default",
+				PodName:       "api-abc123",
+				ContainerName: "api",
+				Reason:        "CreateContainerConfigError",
+				Message:       "couldn't find key \"DB_HOST\" in ConfigMap \"app-config\"",
+			},
+		},
+	}
+	findings := ContainerErrorClassifier{}.Classify(results)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if got := findings[0].DetailFields["object_kind"]; got != "Pod" {
+		t.Errorf("object_kind = %q, want %q", got, "Pod")
+	}
+}

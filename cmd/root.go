@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -44,7 +45,7 @@ var (
 // ── Root command ──────────────────────────────────────────────────────────────
 
 // Version is the CLI version string, set here for --version flag.
-const Version = "1.1.1"
+const Version = "1.1.2"
 
 var rootCmd = &cobra.Command{
 	Use:     "klarity",
@@ -215,7 +216,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	// ── Single-shot mode: check cache first ───────────────────────────────────
-	filteredScan := flagEnv != "" || flagContext != "" || flagNamespace != "" || flagNoDefault
+	filteredScan := flagEnv != "" || flagContext != "" || flagNamespace != "" || flagNoDefault || flagExcludeNs != ""
 	if flagOutput != "json" && !filteredScan {
 		cachedData, loadErr := cache.Load(cachePath)
 		if loadErr != nil {
@@ -691,6 +692,7 @@ func parseCommaSeparated(s string) []string {
 // applyNamespaceFilters applies include/exclude filters to a resolved namespace list.
 // If nsInclude is non-empty, returns the intersection (include already handled by
 // ResolveNamespaces, so this is a no-op). If nsExclude is non-empty, removes those.
+// nsExclude patterns support glob wildcards via filepath.Match semantics.
 func applyNamespaceFilters(namespaces []string, nsInclude, nsExclude []string) []string {
 	// Include filter already applied via NamespaceFilter — nothing to do here.
 	if len(nsInclude) > 0 {
@@ -699,13 +701,17 @@ func applyNamespaceFilters(namespaces []string, nsInclude, nsExclude []string) [
 	if len(nsExclude) == 0 {
 		return namespaces
 	}
-	excludeSet := make(map[string]bool, len(nsExclude))
-	for _, ns := range nsExclude {
-		excludeSet[ns] = true
-	}
 	var out []string
 	for _, ns := range namespaces {
-		if !excludeSet[ns] {
+		excluded := false
+		for _, pattern := range nsExclude {
+			matched, err := filepath.Match(pattern, ns)
+			if err == nil && matched {
+				excluded = true
+				break
+			}
+		}
+		if !excluded {
 			out = append(out, ns)
 		}
 	}
@@ -783,7 +789,7 @@ func countConfigClusters(cfg *config.Config) int {
 func showDefaultEnvBanner(envName string) {
 	line1 := fmt.Sprintf("  klarity scan — scanning %s (default)", envName)
 	line2 := "  Use --env to scan other environments"
-	width := len(line1)
+	width := len([]rune(line1))
 	if len(line2) > width {
 		width = len(line2)
 	}

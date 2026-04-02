@@ -1,0 +1,251 @@
+Read REMEMBER.md and HANDOFF.md first. Run go build + go test ./... to verify clean state.
+
+## Feature: Full-screen Bubbletea TUI for klarity init and klarity config
+
+Replace the current huh-based init wizard in cmd/init.go with a full-screen
+Bubbletea TUI. bubbletea is already a dependency. Do NOT change any scan
+behavior or output — only the init wizard and config interactive menu.
+
+---
+
+## Architecture
+
+Use the standard Bubbletea pattern:
+  type model struct { ... }
+  func (m model) Init() tea.Cmd
+  func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd)
+  func (m model) View() string
+
+Run with: tea.NewProgram(initialModel(), tea.WithAltScreen())
+
+tea.WithAltScreen() is the key — it takes over the full terminal, then
+restores it when the program exits. This is the "BIOS-style" full screen.
+
+---
+
+## Phase structure
+
+Five sequential phases. Phase pills shown at top of every screen.
+Users cannot skip phases — flow is strictly linear forward/back.
+
+  Phase 1: groupings    → show auto-detected env groupings table
+  Phase 2: unmatched    → assign unmatched clusters one by one
+  Phase 3: tiers        → confirm/change tier per environment
+  Phase 4: default env  → select default_env (cursor-navigable list)
+  Phase 5: save         → summary + save confirmation
+
+Model fields:
+  phase        int          // 0-4
+  detected     config.DetectedEnvs
+  selected     map[string][]string  // env → clusters (after user confirms)
+  unmatched    []string     // clusters to assign
+  unmatchedIdx int          // which unmatched cluster we're on
+  unmatchedAssign map[string]string // cluster → env assignment
+  tiers        map[string]string    // env → "critical" or "standard"
+  tierCursor   int
+  defaultEnv   string
+  defCursor    int
+  cursor       int          // generic cursor for list navigation
+  inputVal     string       // text input for rename
+  inputActive  bool         // whether text input has focus
+  firstRun     bool         // show tip banner
+  tipDismissed bool
+  cfg          *config.Config
+  err          error
+  done         bool
+
+---
+
+## Key bindings (enforced in Update)
+
+Global:
+  ctrl+c, q (when not inputActive) → quit without saving
+  esc → go back one phase (phase 0 = quit)
+
+Phase 1 (groupings):
+  ↑↓ → move cursor through env list (visual only, no action)
+  enter, y → accept groupings, advance to phase 2
+  e → enter edit mode (future — for now show "edit not yet available")
+
+Phase 2 (unmatched):
+  ↑↓ → move cursor through option list (existing groups + "new group" + "skip")
+  enter → confirm assignment for current cluster, move to next
+  type → when cursor on "new group", populate input
+  backspace → edit input
+
+Phase 3 (tiers):
+  ↑↓ → move cursor through env list
+  space → toggle tier for env under cursor (critical ↔ standard)
+  enter → confirm all tiers, advance to phase 4
+
+Phase 4 (default env):
+  ↑↓ → move cursor through env list + "No default" option
+  enter → select, advance to phase 5
+
+Phase 5 (save):
+  enter, s → save config and exit (if --scan flag, launch scan after)
+  n → save only, no scan
+  b, ← → go back to phase 4
+
+---
+
+## Visual layout (View function)
+
+Every screen has the same structure:
+
+  [logo]                    [phase pills: ● ○ ○ ○ ○]
+
+  [phase title]
+
+  [main content area — table or list or input]
+
+  [help bar at bottom]
+
+### Logo + phase pills (top, every screen)
+  "klarity" in blue, right-aligned phase pills:
+  done phases: filled green ●
+  active phase: filled blue ● with label
+  future phases: empty ○ dim
+
+### Help bar (bottom, every screen — changes per phase)
+Use lipgloss to render a dim horizontal rule then the key hints:
+  Phase 1: "↑↓ move  ·  enter accept  ·  e edit  ·  esc cancel"
+  Phase 2: "↑↓ move  ·  enter select  ·  type to rename  ·  esc back"
+  Phase 3: "↑↓ move  ·  space toggle  ·  enter confirm  ·  esc back"
+  Phase 4: "↑↓ move  ·  enter select  ·  esc back"
+  Phase 5: "enter save & scan  ·  n save only  ·  esc back  ·  q quit"
+
+### First-run tip banner (phase 1 only, dismissed on any keypress)
+If firstRun && !tipDismissed, show above the main content:
+  ┌─ tip ──────────────────────────────────────────────────────┐
+  │ klarity init is keyboard-driven. ↑↓ move, enter confirm,  │
+  │ esc goes back. Controls are shown at the bottom.           │
+  └────────────────────────────────────────────────────────────┘
+Dismiss on any keypress. Track in config: settings.init_tip_shown: true
+Never shown again after first run.
+
+### Phase 1 — Groupings table
+Columns: Environment | Tier | Clusters | Pattern
+Critical rows: environment name in red lipgloss color
+Cursor row: highlighted with subtle background
+Show unmatched count below table: "N cluster(s) unmatched — assign next"
+If 0 unmatched: skip phase 2 automatically
+
+### Phase 2 — Unmatched assignment
+Show current cluster name prominently
+Options list:
+  - all existing env names from detected + assigned so far
+  - "new group →" with input field when selected
+  - "skip (exclude from config)"
+Cursor highlights selected option.
+When "new group" selected and user types, update inputVal live.
+Progress indicator: "Cluster 1 of N"
+
+### Phase 3 — Tier confirmation
+Table: Environment | Current Tier | Toggle
+Cursor row highlighted. Space toggles tier.
+Changed rows show tier in new color immediately.
+Show legend: "● critical = shown first, red header  ○ standard = default"
+
+### Phase 4 — Default environment
+List of all environments + "No default — scan everything" at bottom.
+Cursor-navigable. Selected item highlighted.
+Show hint: "klarity will scan this by default. Use --env for others."
+
+### Phase 5 — Save summary
+Summary box:
+  environments: N
+  clusters: N
+  default env: name (or "none")
+  namespaces: all (excluding kube-system, kube-public, kube-node-lease, default)
+  config path: ~/.klarityconfig.yaml
+
+Save prompt with options highlighted.
+
+---
+
+## Styling
+
+Use lipgloss throughout. Match website dark theme:
+  background: terminal default (no bg color set — let terminal handle it)
+  accent/blue: lipgloss.Color("#58A6FF")
+  critical/red: lipgloss.Color("#F85149")
+  good/green: lipgloss.Color("#3FB950")
+  warning/amber: lipgloss.Color("#F59E0B")
+  dim: lipgloss.Color("#484F58")
+  text: lipgloss.Color("#E6EDF3")
+  border: lipgloss.Color("#30363D")
+  selected bg: lipgloss.Color("#161B22")
+
+Phase pills:
+  done: "●" in green
+  active: "●" in blue + label
+  future: "○" in dim
+
+---
+
+## Config interactive menu (klarity config)
+
+Add a new interactive subcommand: klarity config (no subcommand = interactive menu)
+Also full-screen Bubbletea, single screen (no phases):
+
+  [logo]
+
+  Config: ~/.klarityconfig.yaml
+  Environments: N  ·  Clusters: N  ·  Default: name
+
+  ┌─────────────────────────────────┐
+  │  › Show config                  │
+  │    Edit in $EDITOR              │
+  │    Validate cluster connections │
+  │    Change default environment   │
+  │    Re-run init wizard           │
+  │    Exit                         │
+  └─────────────────────────────────┘
+
+  ↑↓ move  ·  enter select  ·  q quit
+
+Each option:
+  "Show config" → prints config summary (exits full-screen, prints to stdout)
+  "Edit in $EDITOR" → suspends bubbletea, opens editor, resumes
+  "Validate cluster connections" → exits full-screen, runs existing validate logic
+  "Change default environment" → shows env list inline, updates config
+  "Re-run init wizard" → exits full-screen, runs init
+  "Exit" → quit
+
+This replaces the current klarity config behavior where no subcommand
+currently falls through to help text. klarity config show, edit, validate,
+path still work as before — the interactive menu is only when no subcommand given.
+
+---
+
+## Preserve existing behavior
+
+- All existing huh-based prompts in runFallbackPath() can be kept as-is
+  for the manual assignment fallback (triggered via "Edit groupings")
+- klarity init --reset still works — just launches the TUI with reset flag
+- klarity init on existing config (without --reset) still shows the
+  "config already exists" message and exits (no TUI)
+- All config.Build* functions unchanged — TUI collects the same data,
+  passes to same builders
+- go build + go vet + go test ./... must pass
+
+---
+
+## Tests
+
+The Bubbletea model logic should be unit-testable by sending tea.KeyMsg
+directly to the Update function without a real terminal:
+
+Add cmd/init_tui_test.go:
+- TestTUIPhaseAdvance: send enter on phase 0 → phase becomes 1
+- TestTUIPhaseBack: send esc on phase 1 → phase becomes 0
+- TestTUITierToggle: send space on phase 2 → tier flips
+- TestTUIQuit: send ctrl+c → done == true
+
+---
+
+## After:
+- Update REMEMBER.md and HANDOFF.md
+- Run go build + go vet + go test ./... — all must pass
+- Do NOT git push — leave for user

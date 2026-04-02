@@ -43,6 +43,7 @@ func (ContainerErrorClassifier) Classify(results ScanResults) []Finding {
 			OneLiner:      oneLiner,
 			DetailFields: map[string]string{
 				"reason":      p.Reason,
+				"object_kind": "Pod",
 				"object_name": p.PodName,
 			},
 		})

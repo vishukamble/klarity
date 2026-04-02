@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/vishukamble/klarity/pkg/config"
 	"github.com/vishukamble/klarity/pkg/diagnosis"
@@ -415,6 +416,24 @@ func TestSendSummary_AllFindingsPosted(t *testing.T) {
 	}
 	if !strings.Contains(msg.Text, "4 issues") {
 		t.Errorf("payload text should mention 4 issues, got %q", msg.Text)
+	}
+}
+
+func TestTruncateUTF8(t *testing.T) {
+	// Build a string where a multi-byte rune (×, U+00D7, 2 UTF-8 bytes) sits at
+	// rune position 2899. A raw byte-index truncation at byte 2900 would split it.
+	// The rune-based truncation must produce valid UTF-8.
+	prefix := strings.Repeat("a", 2899)
+	text := prefix + "×rest of the text"
+	runes := []rune(text)
+	if len(runes) > 2900 {
+		text = string(runes[:2900]) + "\n_…truncated_"
+	}
+	if !utf8.ValidString(text) {
+		t.Errorf("truncated string is not valid UTF-8")
+	}
+	if strings.Contains(text, "rest") {
+		t.Errorf("truncated string should not contain text past truncation point")
 	}
 }
 

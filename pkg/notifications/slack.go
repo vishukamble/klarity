@@ -164,8 +164,9 @@ func FormatSummary(findings []diagnosis.Finding, meta ScanMeta) slackMessage {
 		}
 		title := fmt.Sprintf("*%s / %s — %s*", k.env, k.cluster, string(k.cat))
 		text := title + "\n" + strings.Join(lines, "\n")
-		if len(text) > 2900 {
-			text = text[:2900] + "\n_…truncated_"
+		runes := []rune(text)
+		if len(runes) > 2900 {
+			text = string(runes[:2900]) + "\n_…truncated_"
 		}
 		blocks = append(blocks, slackBlock{
 			Type: "section",

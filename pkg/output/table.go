@@ -119,7 +119,7 @@ var categorySpecs = map[diagnosis.Category]catSpec{
 				val, errN := strconv.Atoi(cpuNowRaw)
 				if errN == nil {
 					tgtVal, errT := strconv.Atoi(cpuTgtRaw)
-					if errT == nil && val > 200 {
+					if errT == nil && tgtVal > 0 && val > 200 {
 						cpuNow = fmt.Sprintf("%d%% (%.1f×)", val, float64(val)/float64(tgtVal))
 					} else {
 						cpuNow = fmt.Sprintf("%d%%", val)

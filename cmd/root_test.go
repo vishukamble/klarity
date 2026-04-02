@@ -318,9 +318,37 @@ func TestNoDefaultFlag(t *testing.T) {
 	defer func() { flagNoDefault = oldNoDefault }()
 
 	// Re-evaluate filteredScan expression using the same formula as root.go.
-	filteredScan := flagEnv != "" || flagContext != "" || flagNamespace != "" || flagNoDefault
+	filteredScan := flagEnv != "" || flagContext != "" || flagNamespace != "" || flagNoDefault || flagExcludeNs != ""
 	if !filteredScan {
 		t.Error("expected filteredScan=true when --no-default is set")
+	}
+}
+
+func TestApplyNamespaceFilters_WildcardExclude(t *testing.T) {
+	namespaces := []string{"prod-foo", "test-foo", "test-bar", "staging"}
+	got := applyNamespaceFilters(namespaces, nil, []string{"test-*"})
+	want := []string{"prod-foo", "staging"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestApplyNamespaceFilters_ExactExclude(t *testing.T) {
+	namespaces := []string{"payments", "logging", "analytics"}
+	got := applyNamespaceFilters(namespaces, nil, []string{"logging"})
+	want := []string{"payments", "analytics"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestApplyNamespaceFilters_InvalidPattern(t *testing.T) {
+	// A malformed pattern should not error — the namespace is kept.
+	namespaces := []string{"payments", "test-foo"}
+	got := applyNamespaceFilters(namespaces, nil, []string{"[bad"})
+	want := []string{"payments", "test-foo"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 

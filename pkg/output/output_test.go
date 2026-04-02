@@ -560,3 +560,18 @@ func TestHPARow_NormalCPU(t *testing.T) {
 		t.Errorf("CPU cell = %q, want %q", cell, "23%")
 	}
 }
+
+func TestHPARow_ZeroTarget(t *testing.T) {
+	// cpu_target_percent = "0" with high cpu_current must not panic or show +Inf.
+	spec := categorySpecs[diagnosis.CategoryHPACeiling]
+	f := hpaFinding("300", "0")
+	row := spec.rowFn(f) // must not panic
+	cell := stripANSI(row[3])
+	// Should render as plain percentage with no multiplier.
+	if cell != "300%" {
+		t.Errorf("CPU cell = %q, want %q", cell, "300%")
+	}
+	if strings.Contains(cell, "Inf") {
+		t.Errorf("CPU cell %q must not contain Inf", cell)
+	}
+}

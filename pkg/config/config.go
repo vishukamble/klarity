@@ -211,6 +211,9 @@ func (c *Config) Validate() error {
 	if c.Settings.ParallelClusters < 1 {
 		return errors.New("settings.parallel_clusters must be at least 1")
 	}
+	if c.Settings.ParallelNamespaces < 0 {
+		return errors.New("settings.parallel_namespaces must be >= 0")
+	}
 	if c.Settings.LogTailLines < 1 {
 		return errors.New("settings.log_tail_lines must be at least 1")
 	}

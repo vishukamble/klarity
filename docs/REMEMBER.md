@@ -5,7 +5,7 @@
 ## Current State
 
 **Last updated:** 2026-04-01
-**Last session focus:** Bug fixes + UX hardening (BUG-01/02, UX-01 through UX-05) — v1.1.1
+**Last session focus:** Audit bug fixes C1/H1/H2/H3/M1/M2/L1/L2 — v1.1.2
 **Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass)
 
 ## Feature Tracker
@@ -57,6 +57,7 @@
 - [x] **`klarity update` command** — `cmd/update.go`, GitHub API + tarball download + atomic binary replace
 - [x] **`klarity init --reset`** — guard (exits if config exists), auto-backup to `.bak`
 - [x] **Wildcard namespace matching** — `MatchNamespaces()` with filepath.Match semantics
+- [x] **v1.1.2 audit fixes** — C1 glob exclude, H1 cache bypass, H2 HPA ÷0, H3 Slack UTF-8, M1 banner width, M2 object_kind, L1 empty slice guard, L2 negative parallel_namespaces validation
 
 ## Architecture Decisions
 
@@ -84,6 +85,11 @@
 22. `ResolveNamespaces()` 4th param `defaultExclude` applied only for mode=all with empty cluster exclude list; ignored for include/exclude modes.
 23. `MatchNamespaces()` passthrough on empty patterns; invalid patterns return error with pattern name; dedup preserves candidate order.
 24. `classifyImagePullGroup()` scans ALL events for the object (not just the "best" one) to guarantee image name extraction from BackOff events.
+25. `applyNamespaceFilters()` uses `filepath.Match` for `--exclude-ns` patterns — same semantics as `MatchNamespaces()`.
+26. `filteredScan` includes `flagExcludeNs != ""` — cache is bypassed when `--exclude-ns` is the only filter flag.
+27. `parallel_namespaces: 0` is valid (coerced to 10 at runtime); negative values are rejected at validation.
+28. Slack block text truncated at rune 2900 (not byte 2900) — safe for multi-byte characters.
+29. `ContainerErrorClassifier` findings include `object_kind: "Pod"` in DetailFields.
 
 ## Known Issues / Blockers
 
