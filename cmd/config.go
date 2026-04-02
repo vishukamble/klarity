@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/tools/clientcmd"
 
@@ -17,6 +18,9 @@ func init() {
 	configCmd := &cobra.Command{
 		Use:   "config",
 		Short: "Inspect klarity configuration",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runConfigMenu()
+		},
 	}
 
 	configCmd.AddCommand(&cobra.Command{
@@ -206,6 +210,35 @@ func runConfigValidate(_ *cobra.Command, _ []string) error {
 		fmt.Printf("Config is valid with %d warning(s).\n", warnings)
 	} else {
 		fmt.Printf("Config is valid. %d context(s) found.\n", found)
+	}
+	return nil
+}
+
+// runConfigMenu runs the full-screen Bubbletea config menu (invoked when
+// `klarity config` is called with no subcommand). After the TUI exits, any
+// follow-up action (show, validate, reinit) is executed in the terminal.
+func runConfigMenu() error {
+	cfgPath, err := config.ConfigPath()
+	if err != nil {
+		return err
+	}
+	cfg, loadErr := config.Load(cfgPath)
+	// loadErr is displayed inside the TUI; cfg may be nil when no file exists.
+
+	p := tea.NewProgram(newConfigMenuModel(cfg, cfgPath, loadErr), tea.WithAltScreen())
+	finalRaw, runErr := p.Run()
+	if runErr != nil {
+		return fmt.Errorf("config TUI: %w", runErr)
+	}
+
+	final := finalRaw.(configMenuModel)
+	switch final.action {
+	case cfgActionShow:
+		return runConfigShow(nil, nil)
+	case cfgActionValidate:
+		return runConfigValidate(nil, nil)
+	case cfgActionReinit:
+		return runInit(&cobra.Command{}, nil)
 	}
 	return nil
 }

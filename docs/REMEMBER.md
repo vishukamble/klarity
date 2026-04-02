@@ -5,13 +5,14 @@
 ## Current State
 
 **Last updated:** 2026-04-01
-**Last session focus:** Audit bug fixes C1/H1/H2/H3/M1/M2/L1/L2 — v1.1.2
+**Last session focus:** Full-screen Bubbletea TUI for init wizard + config menu — v1.1.3
 **Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass)
 
 ## Feature Tracker
 
 - [x] **FEAT-01:** Config schema — `pkg/config/config.go`, Load/Save/Validate
-- [x] **FEAT-02:** Onboarding wizard (`klarity init`) — `cmd/init.go` + `pkg/config/detect.go`, huh forms, 4-phase wizard
+- [x] **FEAT-02:** Onboarding wizard (`klarity init`) — `cmd/init.go` + `cmd/init_tui.go`, full-screen Bubbletea TUI, 5-phase wizard (Groupings/Assign/Tiers/Default/Save); `runFallbackPath` kept for future manual assignment path
+- [x] **FEAT-36:** `klarity config` interactive menu — `cmd/config_tui.go`, full-screen Bubbletea; Show/Edit/$EDITOR (ExecProcess)/Validate/ChangeDefault/Reinit; inline default-env selector
 - [x] **FEAT-03:** Multi-context client factory — `pkg/kube/client.go`, BuildClientset/BuildClientsetWithRateLimit
 - [x] **FEAT-04:** Pod scanner — `pkg/kube/pods.go`, CrashLoopBackOff/ImagePullBackOff/OOMKilled/Pending/Evicted
 - [x] **FEAT-05:** Deployment scanner — `pkg/kube/deployments.go`, unavailableReplicas
@@ -39,7 +40,7 @@
 - [x] **FEAT-26:** Config show/path — `cmd/config.go`, pretty-print + path subcommand
 - [x] **FEAT-27:** Node scanner — `pkg/kube/nodes.go` + `pkg/diagnosis/nodes.go`, 5 conditions, renders first
 - [x] **FEAT-28:** `klarity config edit` — opens $EDITOR (fallback nano/vim/vi), validates after save
-- [x] **FEAT-29:** `--version` flag — `cmd/root.go`, currently `1.1.1` ✓
+- [x] **FEAT-29:** `--version` flag — `cmd/root.go`, currently `1.1.3` ✓
 - [x] **FEAT-30:** kubelogin version detection — advisory warning for >= 0.1.19 AKS azurecli mode
 - [x] **FEAT-30b:** `klarity config validate` — context check against kubeconfig with ✓/⚠️
 - [x] **FEAT-32:** JSON output completeness — all categories including NodeIssue
@@ -58,6 +59,7 @@
 - [x] **`klarity init --reset`** — guard (exits if config exists), auto-backup to `.bak`
 - [x] **Wildcard namespace matching** — `MatchNamespaces()` with filepath.Match semantics
 - [x] **v1.1.2 audit fixes** — C1 glob exclude, H1 cache bypass, H2 HPA ÷0, H3 Slack UTF-8, M1 banner width, M2 object_kind, L1 empty slice guard, L2 negative parallel_namespaces validation
+- [x] **v1.1.3 Bubbletea TUI** — `klarity init` now uses full-screen TUI (AltScreen); `klarity config` (no subcommand) opens interactive menu; 13 new TUI unit tests
 
 ## Architecture Decisions
 
@@ -90,6 +92,12 @@
 27. `parallel_namespaces: 0` is valid (coerced to 10 at runtime); negative values are rejected at validation.
 28. Slack block text truncated at rune 2900 (not byte 2900) — safe for multi-byte characters.
 29. `ContainerErrorClassifier` findings include `object_kind: "Pod"` in DetailFields.
+
+30. `initTUIModel` uses 0-indexed phases internally (0=Groupings…4=Save); `nextPhase`/`prevPhase` helpers skip phase 1 when `len(unmatched)==0`.
+31. TUI colour palette defined once in `cmd/init_tui.go` as package-level `var` blocks; `cmd/config_tui.go` uses them directly (same package, no re-import of lipgloss needed in config_tui.go).
+32. `runConfigMenu()` in `cmd/config.go` owns the `tea.NewProgram` call and post-TUI dispatch (show/validate/reinit); `cmd/config_tui.go` is pure model/view.
+33. `runFallbackPath` kept in `cmd/init.go` (uses huh) for future "Edit groupings" path; currently never called since TUI shows "edit not yet available" message.
+34. `runInit(nil, nil)` is safe — nil cmd guard added at kubelogin warning print site; `&cobra.Command{}` passed from `runConfigMenu` reinit action.
 
 ## Known Issues / Blockers
 

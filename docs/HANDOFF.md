@@ -4,13 +4,23 @@
 
 ## What To Do Next
 
-All core features implemented. All audit bugs fixed. Focus on remaining UX hardening.
+All core features implemented. All audit bugs fixed. Bubbletea TUI shipped.
 
 ### High priority
 
-- **`klarity uninstall` confirmation prompt** — `cmd/uninstall.go` now uses `cache.DefaultPath()`/`cache.LogPath()` (BUG-01 ✅). Still lacks interactive confirmation before deleting files; add a `huh.Confirm` prompt before any removal.
+- **`klarity uninstall` confirmation prompt** — `cmd/uninstall.go` still lacks interactive confirmation before deleting files; add a `huh.Confirm` prompt before any removal.
+- **TUI "Edit groupings" path** — `cmd/init_tui.go` shows "edit not yet available" when user presses `e` in phase 0. Wire up `runFallbackPath` (kept in `cmd/init.go`) as the edit path, or implement inline editing in the TUI.
 
-### Done this session (v1.1.2)
+### Done this session (v1.1.3)
+
+- ✅ `cmd/init_tui.go` — new file: `initTUIModel` (5-phase Bubbletea TUI); `runNewWizardTUI` replaces `runNewWizard`; `tea.WithAltScreen()`
+- ✅ `cmd/config_tui.go` — new file: `configMenuModel` single-screen menu; `tea.ExecProcess` for inline editor; inline default-env selector
+- ✅ `cmd/config.go` — `RunE: runConfigMenu` added to configCmd; `runConfigMenu()` launches TUI and dispatches post-action
+- ✅ `cmd/init.go` — removed dead helpers (`runNewWizard`, `promptDefaultEnv`, `detectedToEnvs`, `selectedToEnvs`, `totalConfigClusters`); `runInit` now calls `runNewWizardTUI`; nil-cmd guard added
+- ✅ `cmd/init_tui_test.go` — 13 unit tests (phase advance/back/skip, tier toggle, quit, input active, window size)
+- ✅ Version bumped to `1.1.3`
+
+### Done previous session (v1.1.2)
 
 - ✅ C1: `cmd/root.go` — `applyNamespaceFilters` now uses `filepath.Match` for `--exclude-ns` patterns (glob wildcards actually work now)
 - ✅ H1: `cmd/root.go:218` — `filteredScan` now includes `flagExcludeNs != ""`; cache bypassed when `--exclude-ns` is the only filter
@@ -80,6 +90,19 @@ gatherFindings()
 - CLAUDE.md: classifiers return data, output layer is only formatter; never mutate K8s resources
 
 ## Previous Session Summary
+
+**2026-04-01 — Session 41: Full-screen Bubbletea TUI (v1.1.3)**
+
+| Item | Files | Summary |
+|---|---|---|
+| init TUI | `cmd/init_tui.go` (new) | `initTUIModel` — 5-phase wizard (Groupings/Assign/Tiers/Default/Save), `tea.WithAltScreen()`, phase pills, tip banner, tier toggle |
+| config TUI | `cmd/config_tui.go` (new) | `configMenuModel` — single-screen menu, `tea.ExecProcess` for $EDITOR, inline default-env selector |
+| init wiring | `cmd/init.go` | `runInit` calls `runNewWizardTUI`; removed `runNewWizard`, `promptDefaultEnv`, `detectedToEnvs`, `selectedToEnvs`, `totalConfigClusters` |
+| config wiring | `cmd/config.go` | `RunE: runConfigMenu` added; `runConfigMenu()` launched by `tea.NewProgram`; dispatches show/validate/reinit after TUI exits |
+| tests | `cmd/init_tui_test.go` (new) | 13 tests: phase advance, skip-unmatched, back, tier toggle, quit, input-active, window size, helper funcs |
+| Version | `cmd/root.go` | `1.1.2` → `1.1.3` |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (all pass)
 
 **2026-04-01 — Session 40: Audit bug fixes (v1.1.2)**
 
