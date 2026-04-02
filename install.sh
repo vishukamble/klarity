@@ -1,3 +1,4 @@
+#!/bin/sh
 set -e
 
 # klarity installer
@@ -12,40 +13,39 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo -e "${BLUE}Installing ${BINARY_NAME}...${NC}"
+printf "${BLUE}Installing ${BINARY_NAME}...${NC}\n"
 
 # ── Detect OS and architecture ────────────────────────────────────────────────
 
-OS="$(uname -s | tr '[:upper:]' '[:lower:]')"  # Darwin → darwin
+OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 
 case "$ARCH" in
-    x86_64)  ARCH="amd64" ;;   # x86_64 → amd64
+    x86_64)        ARCH="amd64" ;;
     aarch64|arm64) ARCH="arm64" ;;
     *)
-        echo -e "${RED}Unsupported architecture: ${ARCH}${NC}"
+        printf "${RED}Unsupported architecture: ${ARCH}${NC}\n"
         exit 1
         ;;
 esac
 
-# ── Resolve latest release ───────────────────────────────────────────────────
+# ── Resolve latest release ────────────────────────────────────────────────────
 
-LATEST_URL="https://api.github.com/repos/${REPO}/releases/latest"
 VERSION="$(curl -sL -o /dev/null -w "%{url_effective}" \
   "https://github.com/${REPO}/releases/latest" \
   | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')"
 
-if [ -z "$VERSION" ] || [[ "$VERSION" != v* ]]; then
-    echo -e "${RED}Failed to determine latest version.${NC}"
-    echo -e "Visit https://github.com/${REPO}/releases and install manually."
+if [ -z "$VERSION" ] || [ "${VERSION#v}" = "$VERSION" ]; then
+    printf "${RED}Failed to determine latest version.${NC}\n"
+    printf "Visit https://github.com/${REPO}/releases and install manually.\n"
     exit 1
 fi
 
-echo -e "  Version:  ${GREEN}${VERSION}${NC}"
-echo -e "  OS:       ${OS}"
-echo -e "  Arch:     ${ARCH}"
+printf "  Version:  ${GREEN}${VERSION}${NC}\n"
+printf "  OS:       ${OS}\n"
+printf "  Arch:     ${ARCH}\n"
 
-# ── Download and install ─────────────────────────────────────────────────────
+# ── Download and install ──────────────────────────────────────────────────────
 
 TAR_FILE="${BINARY_NAME}_${OS}_${ARCH}.tar.gz"
 DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${TAR_FILE}"
@@ -53,20 +53,20 @@ DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${TAR_FILE
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-echo -e "  Downloading ${DOWNLOAD_URL}..."
+printf "  Downloading ${DOWNLOAD_URL}...\n"
 
 curl -sSL -o "${TMP_DIR}/${TAR_FILE}" "$DOWNLOAD_URL"
 
 if [ ! -s "${TMP_DIR}/${TAR_FILE}" ]; then
-    echo -e "${RED}Download failed or file is empty.${NC}"
-    echo -e "Check available releases at: https://github.com/${REPO}/releases"
+    printf "${RED}Download failed or file is empty.${NC}\n"
+    printf "Check available releases at: https://github.com/${REPO}/releases\n"
     exit 1
 fi
 
 tar -xzf "${TMP_DIR}/${TAR_FILE}" -C "$TMP_DIR"
 
 if [ ! -f "${TMP_DIR}/${BINARY_NAME}" ]; then
-    echo -e "${RED}Binary not found in archive. Contents:${NC}"
+    printf "${RED}Binary not found in archive. Contents:${NC}\n"
     ls -la "$TMP_DIR"
     exit 1
 fi
@@ -77,15 +77,13 @@ chmod +x "${TMP_DIR}/${BINARY_NAME}"
 if [ -w "$INSTALL_DIR" ]; then
     mv "${TMP_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
 else
-    echo -e "  Installing to ${INSTALL_DIR} (requires sudo)..."
+    printf "  Installing to ${INSTALL_DIR} (requires sudo)...\n"
     sudo mv "${TMP_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
 fi
 
 # ── Verify ────────────────────────────────────────────────────────────────────
 
-echo ""
-echo -e "${GREEN}✅ ${BINARY_NAME} ${VERSION} installed to ${INSTALL_DIR}/${BINARY_NAME}${NC}"
-echo ""
-echo "Get started:"
-echo "  ${BINARY_NAME} init      # configure environments"
-echo "  ${BINARY_NAME}           # scan everything"
+printf "\n${GREEN}✅ ${BINARY_NAME} ${VERSION} installed to ${INSTALL_DIR}/${BINARY_NAME}${NC}\n\n"
+printf "Get started:\n"
+printf "  ${BINARY_NAME} init      # configure environments\n"
+printf "  ${BINARY_NAME}           # scan everything\n"
