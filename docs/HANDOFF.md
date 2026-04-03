@@ -4,14 +4,21 @@
 
 ## What To Do Next
 
-All core features implemented. All audit bugs fixed. Bubbletea TUI shipped.
+All core features implemented. All audit bugs fixed. Bubbletea TUI shipped. Cache UX polished.
 
 ### High priority
 
 - **`klarity uninstall` confirmation prompt** — `cmd/uninstall.go` still lacks interactive confirmation before deleting files; add a `huh.Confirm` prompt before any removal.
 - **TUI "Edit groupings" path** — `cmd/init_tui.go` shows "edit not yet available" when user presses `e` in phase 0. Wire up `runFallbackPath` (kept in `cmd/init.go`) as the edit path, or implement inline editing in the TUI.
 
-### Done this session (v1.1.3)
+### Done this session (v1.1.4)
+
+- ✅ `cmd/root.go` — `flagRescan bool` added; `--rescan` flag bypasses cache (sets `filteredScan=true`); `cacheTTLMinutes=5` constant; stale-TTL check nulls `cachedData` before hit check; cached banner changed to `"(from %s ago · --rescan to force fresh)"`
+- ✅ `pkg/output/summary.go` — removed "Next scan in Xm Ys (--interval N)" countdown from `renderFooter`; footer now shows only per-env summary counts
+- ✅ `cmd/root_test.go` — 3 new tests: `TestCacheTTL_StaleSkipped`, `TestCacheTTL_FreshUsed`, `TestRescanFlag`
+- ✅ Version bumped to `1.1.4`
+
+### Done previous session (v1.1.3)
 
 - ✅ `cmd/init_tui.go` — new file: `initTUIModel` (5-phase Bubbletea TUI); `runNewWizardTUI` replaces `runNewWizard`; `tea.WithAltScreen()`
 - ✅ `cmd/config_tui.go` — new file: `configMenuModel` single-screen menu; `tea.ExecProcess` for inline editor; inline default-env selector
@@ -54,7 +61,8 @@ klarity (non-watch, table mode)
   → apply default_env if set (showDefaultEnvBanner + filterByEnv)
   → warn if >10 clusters and no default_env
   → pkg/cache.Load(~/.klarity_cache)
-      hit  → RenderReport(cached findings) + "(cached Xm ago, scanning...)"
+      stale (age ≥ 5 min) OR --rescan → treat as miss
+      hit  → RenderReport(cached findings) + "(from Xs ago · --rescan to force fresh)"
            → gatherFindings() in background goroutine
            → cache.Equal() → "✓ Still current" OR clearScreen + re-render
       miss → doScan() → gatherFindings() → render
@@ -90,6 +98,19 @@ gatherFindings()
 - CLAUDE.md: classifiers return data, output layer is only formatter; never mutate K8s resources
 
 ## Previous Session Summary
+
+**2026-04-02 — Session 42: Cache UX polish (v1.1.4)**
+
+| Item | Files | Summary |
+|---|---|---|
+| `--rescan` flag | `cmd/root.go` | `flagRescan bool`; added to `filteredScan`; bypasses cache |
+| 5-min TTL | `cmd/root.go` | `cacheTTLMinutes=5`; stale cache nulled before hit check |
+| cached banner | `cmd/root.go` | `"(cached X ago, scanning...)"` → `"(from X ago · --rescan to force fresh)"` |
+| footer cleanup | `pkg/output/summary.go` | Removed "Next scan in Xm Ys" countdown; footer = summary counts only |
+| tests | `cmd/root_test.go` | 3 new tests: `TestCacheTTL_StaleSkipped`, `TestCacheTTL_FreshUsed`, `TestRescanFlag` |
+| Version | `cmd/root.go` | `1.1.3` → `1.1.4` |
+
+Build: ✅ `go build` | ✅ `go vet` | ✅ `go test` (all pass)
 
 **2026-04-01 — Session 41: Full-screen Bubbletea TUI (v1.1.3)**
 

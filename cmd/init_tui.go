@@ -381,6 +381,12 @@ func (m initTUIModel) updateSave(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ── View ─────────────────────────────────────────────────────────────────────
 
 func (m initTUIModel) View() string {
+	boxWidth := 100
+	if m.width > 0 {
+		boxWidth = min(m.width-4, 100)
+	}
+	boxStyle := lipgloss.NewStyle().Width(boxWidth)
+
 	var sb strings.Builder
 	sb.WriteString(m.renderHeader())
 	sb.WriteString("\n\n")
@@ -408,7 +414,12 @@ func (m initTUIModel) View() string {
 	}
 	sb.WriteString("\n\n")
 	sb.WriteString(m.renderHelpBar())
-	return sb.String()
+
+	content := boxStyle.Render(sb.String())
+	if m.width <= 0 {
+		return content
+	}
+	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, content)
 }
 
 func (m initTUIModel) renderHeader() string {

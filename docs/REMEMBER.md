@@ -4,8 +4,8 @@
 
 ## Current State
 
-**Last updated:** 2026-04-01
-**Last session focus:** Full-screen Bubbletea TUI for init wizard + config menu — v1.1.3
+**Last updated:** 2026-04-02
+**Last session focus:** --rescan flag, 5-min cache TTL, honest footer — v1.1.4
 **Build status:** `go build` ✅ | `go vet` ✅ | `go test` ✅ (all pass)
 
 ## Feature Tracker
@@ -60,6 +60,7 @@
 - [x] **Wildcard namespace matching** — `MatchNamespaces()` with filepath.Match semantics
 - [x] **v1.1.2 audit fixes** — C1 glob exclude, H1 cache bypass, H2 HPA ÷0, H3 Slack UTF-8, M1 banner width, M2 object_kind, L1 empty slice guard, L2 negative parallel_namespaces validation
 - [x] **v1.1.3 Bubbletea TUI** — `klarity init` now uses full-screen TUI (AltScreen); `klarity config` (no subcommand) opens interactive menu; 13 new TUI unit tests
+- [x] **v1.1.4 cache UX** — `--rescan` flag forces fresh scan (bypasses cache); 5-min TTL auto-expires stale cache; footer "Next scan in X" removed; cached banner → "(from Xs ago · --rescan to force fresh)"; 3 new tests
 
 ## Architecture Decisions
 

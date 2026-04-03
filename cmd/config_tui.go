@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/vishukamble/klarity/pkg/config"
 )
@@ -228,6 +229,12 @@ func (m configMenuModel) updateChangeDefault(msg tea.KeyMsg) (tea.Model, tea.Cmd
 // ── View ─────────────────────────────────────────────────────────────────────
 
 func (m configMenuModel) View() string {
+	boxWidth := 100
+	if m.width > 0 {
+		boxWidth = min(m.width-4, 100)
+	}
+	boxStyle := lipgloss.NewStyle().Width(boxWidth)
+
 	var sb strings.Builder
 
 	sb.WriteString(tuiLogo.Render("  klarity"))
@@ -258,7 +265,12 @@ func (m configMenuModel) View() string {
 	} else {
 		sb.WriteString(tuiStyleHelp.Render("  ↑↓ move  ·  enter select  ·  q quit"))
 	}
-	return sb.String()
+
+	content := boxStyle.Render(sb.String())
+	if m.width <= 0 {
+		return content
+	}
+	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, content)
 }
 
 func (m configMenuModel) renderConfigSummary() string {

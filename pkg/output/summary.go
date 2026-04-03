@@ -10,7 +10,8 @@ import (
 	"github.com/vishukamble/klarity/pkg/diagnosis"
 )
 
-// renderFooter writes the summary line and optional watch-mode countdown.
+
+// renderFooter writes the summary line.
 // envTotals maps env name → finding count.
 func renderFooter(w io.Writer, cfg *config.Config, envTotals map[string]int, startTime time.Time) {
 	sep := strings.Repeat("━", sepWidth)
@@ -24,20 +25,6 @@ func renderFooter(w io.Writer, cfg *config.Config, envTotals map[string]int, sta
 	}
 	summary := "Summary: " + strings.Join(parts, " | ")
 	fmt.Fprintln(w, BoldStyle.Render(summary))
-
-	// "Next scan in Xm Ys" when a scan interval is configured.
-	if cfg.Settings.ScanIntervalSeconds > 0 {
-		elapsed := time.Since(startTime)
-		remaining := time.Duration(cfg.Settings.ScanIntervalSeconds)*time.Second - elapsed
-		if remaining < 0 {
-			remaining = 0
-		}
-		mins := int(remaining.Minutes())
-		secs := int(remaining.Seconds()) % 60
-		scanMsg := fmt.Sprintf("Next scan in %dm %ds (--%s %d)",
-			mins, secs, "interval", cfg.Settings.ScanIntervalSeconds)
-		fmt.Fprintln(w, DimStyle.Render(scanMsg))
-	}
 
 	fmt.Fprintln(w, DimStyle.Render(sep))
 }

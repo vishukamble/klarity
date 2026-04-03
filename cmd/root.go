@@ -40,12 +40,16 @@ var (
 	flagInterval  int
 	flagHistory   int
 	flagNoDefault bool
+	flagRescan    bool
 )
 
 // ── Root command ──────────────────────────────────────────────────────────────
 
 // Version is the CLI version string, set here for --version flag.
-const Version = "1.1.3"
+const Version = "1.1.4"
+
+// cacheTTLMinutes is the maximum age of a cache hit before it is treated as a miss.
+const cacheTTLMinutes = 5
 
 var rootCmd = &cobra.Command{
 	Use:     "klarity",
@@ -88,6 +92,8 @@ func init() {
 	rootCmd.Flag("history").NoOptDefVal = "10"
 	rootCmd.Flags().BoolVar(&flagNoDefault, "no-default", false,
 		"Ignore default_env from config and scan all environments")
+	rootCmd.Flags().BoolVar(&flagRescan, "rescan", false,
+		"Force a fresh scan, ignoring the cache")
 }
 
 // Execute is the entry point called from main.go.
@@ -216,7 +222,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	// ── Single-shot mode: check cache first ───────────────────────────────────
-	filteredScan := flagEnv != "" || flagContext != "" || flagNamespace != "" || flagNoDefault || flagExcludeNs != ""
+	filteredScan := flagEnv != "" || flagContext != "" || flagNamespace != "" || flagNoDefault || flagExcludeNs != "" || flagRescan
 	if flagOutput != "json" && !filteredScan {
 		cachedData, loadErr := cache.Load(cachePath)
 		if loadErr != nil {
@@ -224,11 +230,15 @@ func runScan(cmd *cobra.Command, args []string) error {
 			os.Remove(cachePath)
 			cachedData = nil
 		}
+		// Treat stale cache (older than TTL) as a miss.
+		if cachedData != nil && cache.Age(cachedData).Minutes() >= cacheTTLMinutes {
+			cachedData = nil
+		}
 
 		if cachedData != nil {
-			// Show cached results instantly with a "scanning..." label.
+			// Show cached results instantly with hint to force fresh.
 			ageStr := formatCacheAge(cache.Age(cachedData))
-			fmt.Printf("(cached %s ago, scanning...)\n\n", ageStr)
+			fmt.Printf("(from %s ago · --rescan to force fresh)\n\n", ageStr)
 			output.RenderReport(os.Stdout, cachedData.Findings, cfg, cachedData.ScannedAt, nil)
 
 			// Background scan.

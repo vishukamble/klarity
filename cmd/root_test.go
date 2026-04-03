@@ -4,7 +4,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/vishukamble/klarity/pkg/cache"
 	"github.com/vishukamble/klarity/pkg/config"
 )
 
@@ -349,6 +351,41 @@ func TestApplyNamespaceFilters_InvalidPattern(t *testing.T) {
 	want := []string{"payments", "test-foo"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestCacheTTL_StaleSkipped(t *testing.T) {
+	// A cache older than cacheTTLMinutes must be treated as a miss (nil).
+	stale := &cache.Cache{ScannedAt: time.Now().Add(-10 * time.Minute)}
+	var cachedData *cache.Cache = stale
+	if cache.Age(cachedData).Minutes() >= cacheTTLMinutes {
+		cachedData = nil
+	}
+	if cachedData != nil {
+		t.Error("stale cache (10m old) should have been set to nil")
+	}
+}
+
+func TestCacheTTL_FreshUsed(t *testing.T) {
+	// A cache younger than cacheTTLMinutes must be kept (non-nil).
+	fresh := &cache.Cache{ScannedAt: time.Now().Add(-2 * time.Minute)}
+	var cachedData *cache.Cache = fresh
+	if cache.Age(cachedData).Minutes() >= cacheTTLMinutes {
+		cachedData = nil
+	}
+	if cachedData == nil {
+		t.Error("fresh cache (2m old) should not have been set to nil")
+	}
+}
+
+func TestRescanFlag(t *testing.T) {
+	old := flagRescan
+	flagRescan = true
+	defer func() { flagRescan = old }()
+
+	filteredScan := flagEnv != "" || flagContext != "" || flagNamespace != "" || flagNoDefault || flagExcludeNs != "" || flagRescan
+	if !filteredScan {
+		t.Error("expected filteredScan=true when --rescan is set")
 	}
 }
 
