@@ -2,11 +2,12 @@
 set -e
 
 # klarity installer
-# Usage: curl -sSL https://getklarity.dev/install.sh | sh
+# Usage:       curl -sSL https://getklarity.dev/install.sh | sh
+# User-only:   curl -sSL https://getklarity.dev/install.sh | INSTALL_DIR=~/.local/bin sh
 
 BINARY_NAME="klarity"
 REPO="vishukamble/klarity"
-INSTALL_DIR="/usr/local/bin"
+INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -73,17 +74,34 @@ fi
 
 chmod +x "${TMP_DIR}/${BINARY_NAME}"
 
-# Install — use sudo if needed.
+# Install — explain sudo when required; support INSTALL_DIR override.
 if [ -w "$INSTALL_DIR" ]; then
     mv "${TMP_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
 else
-    printf "  Installing to ${INSTALL_DIR} (requires sudo)...\n"
+    printf "\n  ⚠  Installing to ${INSTALL_DIR} requires sudo (system-wide install).\n"
+    printf "     This allows all users on this machine to run klarity.\n"
+    printf "     If you prefer a user-only install, press Ctrl+C and re-run with:\n"
+    printf "     curl -sSL https://getklarity.dev/install.sh | INSTALL_DIR=~/.local/bin sh\n\n"
     sudo mv "${TMP_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
 fi
 
 # ── Verify ────────────────────────────────────────────────────────────────────
 
 printf "\n${GREEN}✅ ${BINARY_NAME} ${VERSION} installed to ${INSTALL_DIR}/${BINARY_NAME}${NC}\n\n"
+
+# Warn if a user-local install dir is not yet in PATH.
+case "$INSTALL_DIR" in
+    "$HOME/.local/bin"|"$HOME/bin")
+        case ":$PATH:" in
+            *":$INSTALL_DIR:"*) ;;
+            *)
+                printf "  ⚠  Add to PATH: export PATH=\"\$HOME/.local/bin:\$PATH\"\n"
+                printf "     Add this line to your ~/.zshrc or ~/.bashrc\n\n"
+                ;;
+        esac
+        ;;
+esac
+
 printf "Get started:\n"
 printf "  ${BINARY_NAME} init      # configure environments\n"
 printf "  ${BINARY_NAME}           # scan everything\n"

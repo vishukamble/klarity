@@ -85,6 +85,17 @@
         .cmd-val  { color:#f59e0b; }
         .cmd-line span { font-size:11.5px; color:var(--text-dim); line-height:1.5; }
 
+        .install-note {
+            margin-top: 10px;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            font-family: var(--mono);
+        }
+        .install-note code {
+            color: var(--accent);
+            font-size: 0.75rem;
+        }
+
         @media(max-width:900px){
             .commands-grid { grid-template-columns:1fr; }
             .new-features-grid { grid-template-columns:1fr; }
@@ -112,12 +123,16 @@
 </nav>
 
 <header class="hero">
-    <div class="badge">v1.1.3 Live</div>
+    <div class="badge">v1.1.4 Live</div>
     <h1 class="mitra-headline">One command.<br>Every cluster.<br><span class="highlight">Diagnosed.</span></h1>
     <p class="subtitle">A read-only Kubernetes diagnostic CLI that scans clusters in parallel, extracts root causes from logs, and surfaces the answer in one screen.</p>
     <div class="install-box" onclick="copyInstallCmd()">
         <code><span class="prompt">$</span> curl -sSL https://getklarity.dev/install.sh | sh</code>
         <div class="copy-hint">Copy</div>
+    </div>
+    <div class="install-note">
+        No sudo? Install to your home directory:
+        <code>INSTALL_DIR=~/.local/bin curl -sSL https://getklarity.dev/install.sh | sh</code>
     </div>
 </header>
 
@@ -356,6 +371,7 @@
                 <div class="cmd-line"><code>klarity <span class="cmd-flag">-e</span> <span class="cmd-val">prod-payments</span></code><span>Scan a specific environment</span></div>
                 <div class="cmd-line"><code>klarity <span class="cmd-flag">-e</span> <span class="cmd-val">prod,staging</span></code><span>Scan multiple environments</span></div>
                 <div class="cmd-line"><code>klarity <span class="cmd-flag">--no-default</span></code><span>One-shot full scan ignoring default_env</span></div>
+                <div class="cmd-line"><code>klarity <span class="cmd-flag">--rescan</span></code><span>Force a fresh scan, ignoring the cache</span></div>
                 <div class="cmd-line"><code>klarity <span class="cmd-flag">--watch</span></code><span>Continuous scan, refreshes on interval</span></div>
             </div>
 
